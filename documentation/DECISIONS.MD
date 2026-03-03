@@ -16,7 +16,7 @@ A log of non-trivial technical decisions: what we chose, what we rejected, and w
 ---
 
 ### D001 — DashMap over RwLock\<HashMap\>
-**Date:** [DATE]  
+**Date:** [2026-03-02 ~4AM]  
 **Phase:** Phase 1 — Storage  
 **Session:** Session 001
 

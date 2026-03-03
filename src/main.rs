@@ -1,4 +1,5 @@
-
+//Rust only compiles modules that are declared in `main.rs`
+mod storage;
 
 
 fn main() {

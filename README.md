@@ -85,10 +85,12 @@ OK
 ### Run Tests
 
 ```bash
-cargo test
-cargo clippy     # linter
-cargo fmt        # formatter
+cargo build        
+cargo test         
+cargo clippy       # Linter
+cargo fmt          # Formatter
 ```
+
 
 ---
 
