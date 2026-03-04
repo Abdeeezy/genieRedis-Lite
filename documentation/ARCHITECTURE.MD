@@ -47,9 +47,9 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 ## Modules
 
 ### `main.rs`
-**Responsibility:** Bootstrap. Initialize tracing, load config, start the server.
+**Responsibility:** Bootstrap. Initialize tracing, load config, start the server and run the server.
 
-**Status:** 🚧 Scaffold only
+**Status:** testing stages 
 
 ---
 
@@ -60,9 +60,10 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 - _TBD_
 
 **Interface:**
-- _TBD_
+- pub async fn handle_client(socket: TcpStream, store: Store)
+- pub async fn run(listener: TcpListener, store: Store)
 
-**Status:** ⬜ Not started
+**Status:** skeleton-status but it's working. connections are handled, simple logs..
 
 ---
 

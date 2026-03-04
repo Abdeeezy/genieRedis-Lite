@@ -75,6 +75,38 @@ Updated at the end of each working session.
 ---
 
 
+### Session 003 — [2026-03-03]
+**Phase:** Phase 2 — TCP Server
+**Commit(s):** 
+- `session 03 - made store-methods public; implemented exists(key) method.`
+- `session 03 - implemented server/mod.rs; run() and handle_client() with simple logging; wired up main.rs and tested successfully.`
+
+#### What We Did
+- Implemented `server/mod.rs` with `run()` and `handle_client()`
+- `run()` loops on `listener.accept()`, spawns a Tokio task per connection
+- `handle_client()` currently logs the client address - primed for Phase 3
+- Wired up `main.rs`: initializes `Store`, binds `TcpListener`, calls `server::run()`
+- Smoke tested with a browser - multiple concurrent connections accepted correctly
+
+#### Decisions Made
+- No new entries in DECISIONS.md - no major tradeoffs this phase
+
+#### Mistakes / Learnings
+- Initially wrapped `TcpListener` and `TcpStream` in custom structs - unnecessary,
+  Tokio's types are sufficient directly
+- Hit a "use of moved value" compile error: `store` was being moved into the 
+  `async move` block on the first iteration, consumed before the second. 
+  Fix: clone `store` at the top of each loop iteration before the spawn. 
+  Cloning `Store` is cheap - it only bumps the `Arc` refcount, the underlying 
+  `DashMap` is shared across all clones.
+
+#### Open Questions
+- None
+
+#### Next Session
+- Phase 3: RESP protocol parser
+- Implement `protocol/mod.rs` — parse raw bytes into a `Command` enum
+
 
 <!-- Copy-Paste Template  -->
 <!--
