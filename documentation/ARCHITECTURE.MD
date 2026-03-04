@@ -57,7 +57,8 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 **Responsibility:** Accept TCP connections. Spawn a Tokio task per client. Pass raw bytes to the protocol layer, return encoded responses.
 
 **Key types:**
-- _TBD_
+- Tukio::TCPStream
+- Tukio::TcpListener
 
 **Interface:**
 - pub async fn handle_client(socket: TcpStream, store: Store)
