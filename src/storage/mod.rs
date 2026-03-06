@@ -16,9 +16,6 @@ pub struct Store {
 
 
 
-
-
-
 // implement the methods for the Store struct
 impl Store {
     // Initializes both the dashmap and the ARC

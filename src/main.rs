@@ -1,6 +1,7 @@
 //Rust only compiles modules that are declared in `main.rs`
 mod storage;
 mod server;
+mod protocol;
 
 use storage::Store; //exposes the crate to be used implicitly for the rest of the code in here.
 use tokio::io;
