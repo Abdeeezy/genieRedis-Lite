@@ -320,8 +320,6 @@ fn parse_array(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>
                 return Err(ProtocolError::InvalidFormat("negative array length".into()));
             }
 
-
-
              // advance the cursor-reference, skip past the `\r\n` 
             *pos = i + 2;
 

@@ -1,4 +1,4 @@
-# ARCHITECTURE — redis-lite
+# ARCHITECTURE - redis-lite
 
 A living document. Update when modules are added, interfaces change, or the design evolves.
 
@@ -24,7 +24,7 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
                     ▼
 ┌─────────────────────────────────────────────┐
 │              protocol/                      │
-│   RESP parser — bytes in, Command enum out  │
+│   RESP parser - bytes in, Command enum out  │
 └───────────────────┬─────────────────────────┘
                     │
                     ▼
@@ -37,7 +37,7 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
                     ▼
 ┌─────────────────────────────────────────────┐
 │             persistence/                    │
-│   AOF or snapshot — writes to disk          │
+│   AOF or snapshot - writes to disk          │
 │   Replays on startup for recovery           │
 └─────────────────────────────────────────────┘
 ```
@@ -72,14 +72,17 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 **Responsibility:** Parse raw RESP bytes into typed `Command` variants. Serialize responses back to RESP bytes.
 
 **Key types:**
-- `Command` enum — `Get(key)`, `Set(key, value)`, `Del(key)`, etc.
-- `RespValue` enum — `SimpleString`, `Error`, `Integer`, `BulkString`, `Array`
+- `Command` enum -      `Get(key)`, `Set(key, value)`, `Del(key)`, etc.
+- `RespValue` enum -    `SimpleString`, `Error`, `Integer`, `BulkString`, `Array`
+- `ProtocolError`enum - `Incomplete`, `InvalidType(u8)`, `InvalidFormat(String)`, `InvalidCommand(String)`, `WrongArgCount { command: String, expected: usize, got: usize }`
 
 **Interface:**
-- `parse(buf: &[u8]) -> Result<Command, ProtocolError>`
+- `fn parse_value(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>`
+    - cursor + rollback pattern    
+- `fn parse_command(value: RespValue) -> Result<Command, ProtocolError>`
 - `encode(value: RespValue) -> Bytes`
 
-**Status:** ⬜ Not started
+**Status:** In progress
 
 ---
 
@@ -87,8 +90,8 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 **Responsibility:** Thread-safe in-memory key-value store. Core data structure. Owns TTL logic.
 
 **Key types:**
-- `Store` struct — wraps `DashMap<String, Entry>`
-- `Entry` struct — `{ value: String, expires_at: Option<Instant> }`
+- `Store` struct - wraps `DashMap<String, Entry>`
+- `Entry` struct - `{ value: String, expires_at: Option<Instant> }`
 
 **Interface:**
 - `Store::new() -> Store`
@@ -114,7 +117,7 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 
 ---
 
-## Data Flow — Example: `SET foo bar`
+## Data Flow - Example: `SET foo bar`
 
 ```
 1. Client sends: "*3\r\n$3\r\nSET\r\n$3\r\nfoo\r\n$3\r\nbar\r\n"
@@ -133,7 +136,7 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 
 - One Tokio task per client connection
 - `Store` is wrapped in `Arc<Store>` and cloned across tasks
-- `DashMap` handles internal locking per key-shard — no global lock
+- `DashMap` handles internal locking per key-shard - no global lock
 - TTL expiration runs as a background Tokio task (lazy expiry on GET + active sweep)
 
 ---

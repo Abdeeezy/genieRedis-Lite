@@ -1,4 +1,4 @@
-# DEVLOG — redis-lite
+# DEVLOG - redis-lite
 
 A chronological journal of sessions, decisions, mistakes, and progress.
 Updated at the end of each working session.
@@ -16,7 +16,7 @@ Updated at the end of each working session.
 
 ---
 
-### Session 001 — [2026-03-02 ~4AM]
+### Session 001 - [2026-03-02 ~4AM]
 **Phase:** Project Setup
 **Commit(s):** `initial scaffold`
 
@@ -41,12 +41,12 @@ Updated at the end of each working session.
 
 ---
 
-### Session 002 — [2026-03-02]
+### Session 002 - [2026-03-02]
 **Phase:** 1
 **Commit(s):** `set up dashmap data-storage and defined key/value data-type; also implemented a static method to create the store, and the SET/GET/DEL instance-methods.`
 
 #### What We Did
-- Designed and implemented storage/mod.rs — the core in-memory store
+- Designed and implemented storage/mod.rs - the core in-memory store
 - Defined Entry struct: Bytes value
 - Defined Store struct: wraps Arc<DashMap<String, Entry>>, derives Clone
 - Implemented new(), get(), set(), del()
@@ -75,8 +75,8 @@ Updated at the end of each working session.
 ---
 
 
-### Session 003 — [2026-03-03]
-**Phase:** Phase 2 — TCP Server
+### Session 003 - [2026-03-03]
+**Phase:** Phase 2 - TCP Server
 **Commit(s):** 
 - `session 03 - made store-methods public; implemented exists(key) method.`
 - `session 03 - implemented server/mod.rs; run() and handle_client() with simple logging; wired up main.rs and tested successfully.`
@@ -105,12 +105,53 @@ Updated at the end of each working session.
 
 #### Next Session
 - Phase 3: RESP protocol parser
-- Implement `protocol/mod.rs` — parse raw bytes into a `Command` enum
+- Implement `protocol/mod.rs` - parse raw bytes into a `Command` enum
+
+
+### Session 004 - [2026-03-05]
+**Phase:** Phase 3 - RESP Protocol Parser
+**Commit(s):** 
+- `seasion 04 - set up protocol; defined ENUMs for byte-wire-format(ProtocolError, RespValue, Command); low-level-parsing in progress; implemented parse_simple_string and parse_error. Also establish inline module testing with a single test-case`
+- `Session 04 - implemented parse_integer`
+- `Session 04 - implemented parse_bulk_string`
+- `Session 04 - implemented parse_array(); 24 tests LLM-generated and all passed.`
+
+#### What We Did
+- Designed and implemented protocol/mod.rs - the low-level RESP parser
+- Defined RespValue enum: SimpleString, BulkString(Option<Bytes>), Integer, Array, Error
+- Defined Command enum with named fields: Ping, Get{key}, Set{key, value, ttl}, Del{key}, Exists{key}
+- Defined ProtocolError enum with descriptive variants using `thiserror`: Incomplete, InvalidType(u8), InvalidFormat(String), InvalidCommand(String), WrongArgCount{command, expected, got}
+- Implemented parse_value() dispatcher + 5 helpers: parse_simple_string, parse_error, parse_integer, parse_bulk_string, parse_array
+- Used cursor-based approach (&mut usize) with recursion for arrays
+- Implemented rollback-on-incomplete pattern - snapshot pos at function entry, restore on failure
+- Wrote 24 unit tests covering all RESP types, edge cases, incomplete data, rollback, nested arrays, realistic Redis commands
+- All 24 tests passing
+
+#### Decisions Made
+- Cursor + recursion approach for parsing - cursor tracks position in buffer, recursion handles nested arrays naturally
+- Rollback pattern for incomplete TCP data - save pos before parsing, restore if Incomplete, so the server can retry when more bytes arrive
+- BulkString(Option<Bytes>) instead of separate Nil variant - None represents $-1\r\n null, mirrors RESP spec more closely
+- Included ttl in Command::Set as Option<Duration> - forward-thinking for Phase 5, avoids refactor later
+- Descriptive error variants - InvalidCommand carries the name, WrongArgCount carries command/expected/got for easier debugging
+
+#### Mistakes / Learnings
+- Shadowing &mut references with let creates a new local instead of modifying the original - must use *pos to dereference
+- Bulk string parsing doesn't need to scan for \r\n in the data - the length prefix tells you exactly where the data ends, that's the whole point of length-prefixed formats
+- cargo test --lib doesn't work for binary-only projects - use cargo test instead
+- b'+' syntax for byte literals when comparing against &[u8] buffers
+
+#### Open Questions
+- None
+
+#### Next Session
+- Implement parse_command() - high-level layer: RespValue (array of bulk strings) → Command enum
+- Implement encode() - serialize RespValue back to RESP bytes for server responses
+- Wire protocol into the TCP server (Phase 4)
 
 
 <!-- Copy-Paste Template  -->
 <!--
-### Session 00X — [DATE]
+### Session 00X - [DATE]
 **Phase:** 
 **Commit(s):** ``
 
