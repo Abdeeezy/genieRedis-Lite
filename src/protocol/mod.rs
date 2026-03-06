@@ -71,7 +71,7 @@ enum RespValue {
 // - High-level:    RespValue (specifically an array of bulk strings) -> Command enum
 
 /* 
-```
+-------
 That takes the `RespValue` (which should be an array of bulk strings if the client is behaving),
     pulls out the command name, 
     matches it, 
@@ -89,11 +89,9 @@ That takes the `RespValue` (which should be an array of bulk strings if the clie
 // |    `$6\r\nfoobar\r\n`   ->   is the second bulk string (the command value)
 
 
-
-
-So the full pipeline is:
-```
-raw bytes  →  parse_value()  →  RespValue  →  parse_command()  →  Command
+So the full pipeline is: 
+    raw bytes  →  parse_value()  →  RespValue  →  parse_command()  →  Command
+-------
 */
 
 //// --- LOW-LEVEL PARSING AREA ---
@@ -108,10 +106,10 @@ fn parse_value(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>{
     let type_byte = buf[*pos];
 
     match type_byte {
-        // b'[sequence]'   -> tells compiler that it should be treated as a byte string-literal 
+        // b'[character]'   -> tells compiler that it should be treated as a byte character-literal  //-//  b"str" for string-literal 
         b'+' => parse_simple_string(buf, pos),
-        // b'-' => parse_error(buf, pos),
-        //b':' => parse_integer(buf, pos),
+        b'-' => parse_error(buf, pos),
+        b':' => parse_integer(buf, pos),
         //b'$' => parse_bulk_string(buf, pos),
         //b'*' => parse_array(buf, pos),
         _   =>  Err(ProtocolError::InvalidType(type_byte)),
@@ -183,16 +181,42 @@ fn parse_error(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>
     Err(ProtocolError::Incomplete)
 }
 
+fn parse_integer(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>
+{
+    //simple_string example: `:1337\r\n`
+
+    let start = *pos;       // snapshot for rollback
+
+    // skip past the ':' byte
+    *pos += 1;
+
+    // find the next \r\n starting from pos
+    for i in *pos .. buf.len(){
+        // if `\r\n` found
+        if i + 1 < buf.len() && buf[i] == b'\r' && buf[i+1] == b'\n'
+        {
+            // extract/store the string between pos and \r\n
+            let str = String::from_utf8(buf[*pos..i].to_vec())
+                .map_err(|_| ProtocolError::InvalidFormat("invalid utf8".into()))?;
+
+            // parse the extracted-string
+             let num:i64 = str.parse::<i64>()
+                  .map_err(|_| ProtocolError::InvalidFormat("invalid integer".into()))?;
+            
+            // advance the cursor-reference, skip past the `\r\n` 
+            *pos = i + 2;
+            return Ok((RespValue::Integer((num))))
+        }    
+    }
+
+    // if the loop escapes without return an OK() response, then it failed
+    // thus: rollback and ERR()
+    *pos = start;           // rollback — nothing was consumed
+    Err(ProtocolError::Incomplete)
+}
+
+
 /*
-
-fn parse_integer(buf, pos):
-    // skip past ':'
-    // find \r\n
-    // extract text between pos and \r\n
-    // parse that text as i64 (fail → InvalidFormat)
-    // advance pos past \r\n
-    // return Integer(value)
-
 
 fn parse_bulk_string(buf, pos):
     // start = pos //snapshot before we touch anything in case there is incomplete data further down the bulk-string.
