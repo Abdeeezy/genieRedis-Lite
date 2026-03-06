@@ -15,7 +15,7 @@ use thiserror::Error; // for the error handling in the protocol parsing - derive
 // +          |  Simple String  |  `+OK\r\n`
 // -          |  Error          |  `-ERR unknown command\r\n`
 // :          |  Integer        |  `:1000\r\n`
-// $          |  Bulk String    |  `$longer string\r\ncontinues onwards\r\n`   --  [Null bulk string is `$-1\r\n`]
+// $          |  Bulk String    |  `$30\r\nlonger string\r\ncontinues onwards\r\n`   --  [Null bulk string is `$-1\r\n`]
 // *          |  Array          |  `*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n`
 // ---
 // Clients send commands as arrays of bulk strings.
@@ -110,7 +110,7 @@ fn parse_value(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>{
         b'+' => parse_simple_string(buf, pos),
         b'-' => parse_error(buf, pos),
         b':' => parse_integer(buf, pos),
-        //b'$' => parse_bulk_string(buf, pos),
+        b'$' => parse_bulk_string(buf, pos),
         //b'*' => parse_array(buf, pos),
         _   =>  Err(ProtocolError::InvalidType(type_byte)),
     }
@@ -153,7 +153,7 @@ fn parse_simple_string(buf: &[u8], pos: &mut usize) -> Result<RespValue, Protoco
 
 fn parse_error(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>
 {
-    //simple_string example: `-ERR erronous behaviour\r\n`
+    //error example: `-ERR erronous behaviour\r\n`
 
     let start = *pos;       // snapshot for rollback
 
@@ -183,7 +183,7 @@ fn parse_error(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>
 
 fn parse_integer(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>
 {
-    //simple_string example: `:1337\r\n`
+    //integer example: `:1337\r\n`
 
     let start = *pos;       // snapshot for rollback
 
@@ -216,22 +216,70 @@ fn parse_integer(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError
 }
 
 
+
+fn parse_bulk_string(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>
+{
+    //bulk_string example: `$30\r\nlonger string\r\ncontinues onwards\r\n`   --  [Null bulk string is `$-1\r\n`]
+
+    let start = *pos;       // snapshot for rollback
+
+    // skip past the '$' byte
+    *pos += 1;
+
+    //let mut bulkStringBytes: <Option<Bytes, None>
+
+    // find the next \r\n starting from pos
+    for i in *pos .. buf.len(){
+        // lengthPrefix-extraction - if `\r\n` found
+        if i + 1 < buf.len() && buf[i] == b'\r' && buf[i+1] == b'\n'
+        {
+            // extract/store the string between pos and \r\n
+            let str = String::from_utf8(buf[*pos..i].to_vec())
+                .map_err(|_| ProtocolError::InvalidFormat("invalid utf8".into()))?;
+
+            // parse for the length-prefix-value
+            let length = str.parse::<i64>()
+                  .map_err(|_| ProtocolError::InvalidFormat("invalid integer".into()))?;
+
+            // if nothing/null/nil supplied, return accordingly
+            if length == -1{
+                return Ok(RespValue::BulkString(None))
+            }
+
+            // if length-supplied is larger than the bytes available in the buffer
+            let u_size_length: usize = length.try_into().map_err(|_| ProtocolError::InvalidFormat(("Failed conversion").into()))?; //error shouldn't run 
+            if *pos + u_size_length + 2 > buf.len()
+            {
+                *pos = start;           // rollback — nothing was consumed
+                return Err(ProtocolError::Incomplete);
+            }
+
+
+            // advance the cursor-reference, skip past the `\r\n` 
+            *pos = i + 2;
+
+            // extract exactly `length` bytes — no scanning needed
+            let data = Bytes::copy_from_slice(&buf[*pos .. *pos + u_size_length]);
+            // verify the terminator is there
+            if buf[*pos + u_size_length] != b'\r' || buf[*pos + u_size_length + 1] != b'\n' {
+                *pos = start; //rollback
+                return Err(ProtocolError::InvalidFormat("missing bulk string terminator".into()));
+            }
+
+            // advance past data + \r\n
+            *pos = *pos + u_size_length + 2;
+
+            return Ok(RespValue::BulkString(Some(data)));
+        } 
+    }
+
+    // if the loop escapes without return an OK() response, then it failed
+    // thus: rollback and ERR()
+    *pos = start;           // rollback — nothing was consumed
+    Err(ProtocolError::Incomplete)
+}
+
 /*
-
-fn parse_bulk_string(buf, pos):
-    // start = pos //snapshot before we touch anything in case there is incomplete data further down the bulk-string.
-    // skip past '$'
-    // find \r\n
-    // extract length string, parse as integer
-    // if length == -1 → advance pos, return BulkString(None)   [null]
-    // if buf doesn't have enough bytes for length + \r\n 
-    //      pos = start  // rollback, like nothing happened
-    //      return Incomplete
-    // extract `length` bytes starting after the \r\n
-    // verify the next two bytes are \r\n
-    // advance pos past all of it
-    // return BulkString(Some(data))
-
 
 fn parse_array(buf, pos):
     // start = pos //snapshot before we touch anything in case there is incomplete data further down the array.
