@@ -1,15 +1,139 @@
+use super::protocol;
+use super::protocol::RespValue;
 use super::storage::Store;
 
 use tokio::net::{TcpListener, TcpStream};
 
+use tokio::io::AsyncReadExt; // gives `read_buf()` which writes directly into BytesMut
+use tokio::io::AsyncWriteExt; // gives `write_all()` for writing responses back 
+
+use bytes::{Buf, Bytes, BytesMut}; // BytesMut can be thought of as containing a buf: Arc<Vec<u8>>
+// BytesMut's BufMut implementation will implicitly grow its buffer as necessary.
 
 // TCP client handling and lister loop
-pub async fn handle_client(socket: TcpStream, store: Store) {
+pub async fn handle_client(
+    mut socket: TcpStream,
+    store: Store,
+) -> Result<(), Box<dyn std::error::Error>> {
     // todo
     println!("Being handled!");
     println!("Address: {:?}", socket.peer_addr());
+
+    /*
+       Uses a persistent buffer (BytesMut) that accumulates across reads.
+       Attempts to parse after each read.
+       On Incomplete - loop back and read more bytes
+       On success - advance the buffer past the consumed bytes, then execute the command
+    */
+
+    let mut buf = BytesMut::with_capacity(512); // start with 512 bytes 
+
+    loop {
+        // 1. read from socket into buffer
+        // and store the number of bytes the latest-read added
+        let num_bytes_read = socket.read_buf(&mut buf).await?; // propagate error back to run()
+
+        // 2. if 0 bytes → client disconnected, break
+        if num_bytes_read == 0 {
+            println!("Client Disconnected.");
+            break;
+        }
+
+        // 3. try parse_value on buffer
+        //    - Incomplete → continue (read more)
+        //    - Error → send RESP error, reset buffer
+        //    - Ok(value) → advance buffer, parse_command, dispatch, encode, write
+        //
+        // done in an inner loop to consume all complete frames in the buffer;
+        //          so that commands sent in batches aren't neglected and so the stream doesn't stall.
+        loop {
+            let mut pos: usize = 0;
+            match protocol::parse_value(&buf, &mut pos) {
+                //&buf works because BytesMut derefs to &[u8]
+                Err(protocol::ProtocolError::Incomplete) => {
+                    // if buffer incomplete, don't consume any bytes and just keep waiting for more info/data/bytes
+                    continue;
+                }
+                Err(error) => {
+                    //send back a RESP error
+                    let resp = protocol::encode(&RespValue::Error(error.to_string()));
+                    socket.write_all(&resp).await?;
+
+                    //clear the buffer from the garbage/corruption
+                    buf.clear();
+                }
+                Ok(value) => {
+                    // After a successful parse, advance the buffer
+                    buf.advance(pos); // drop the consumed bytes  (bytes::Buf.advance())
+
+                    // now parse_command, dispatch, encode, write...
+                    match protocol::parse_command(value) {
+                        Ok(cmd) => {
+                            // if command-parsing successful...
+                            //execute the command on the KV-Store
+                            let result = execute_command(cmd, &store);
+                            // send result back
+                            let resp = protocol::encode(&result);
+                            socket.write_all(&resp).await?;
+                        }
+                        Err(error) => {
+                            // if invalid command attempted...
+                            //send back a RESP error
+                            let resp = protocol::encode(&RespValue::Error(error.to_string()));
+                            socket.write_all(&resp).await?;
+
+                            // no buffer-clear needed..
+                            // The RESP frame itself was valid (it passed), it's just the command that was wrong
+                            // the buffer was already advanced past the consumed bytes
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
+fn execute_command(cmd: protocol::Command, store: &Store) -> RespValue {
+    match cmd {
+        protocol::Command::Ping => RespValue::SimpleString("PONG".into()),
+        protocol::Command::Exists { key } => {
+            //Exists
+            let key_exists = store.exists(&key);
+            if (key_exists == true) {
+                // redis standard, returns an integer
+                RespValue::Integer(1)
+            } else {
+                RespValue::Integer(0)
+            }
+        }
+        protocol::Command::Del { key } => {
+            //Del
+            let was_key_deleted = store.del(&key);
+            if (was_key_deleted == true) {
+                RespValue::Integer(1)
+            } else {
+                RespValue::Integer(0)
+            }
+        }
+        protocol::Command::Get { key } => {
+            // Get
+            match store.get(&key) {
+                Some(value) => RespValue::BulkString(Some(value)),
+                None => RespValue::BulkString(None),
+            }
+        }
+        protocol::Command::Set { key, value, ttl } => {
+            // TODO add TTL attribute 
+            // Set
+            store.set(&key, value);
+            RespValue::SimpleString("OK".to_string()) //certain success
+        }
+    
+    }
+
+}
 
 pub async fn run(listener: TcpListener, store: Store) {
     println!("-- accepting inbound connections --");
@@ -19,15 +143,15 @@ pub async fn run(listener: TcpListener, store: Store) {
         // listen for client-connections, if found, run handle_client code.
         match listener.accept().await {
             Ok((socket, addr)) => {
-                
                 // "overshadowing" the variable `store` which only occurs in this scope; the store-variable remains untouched outside of this scope
                 let store = store.clone(); // clone per iteration, original stays
-                
+
                 // spawn an async task to allow for execution-concurrency.
                 tokio::spawn(async move {
-                    handle_client(socket, store).await;
+                    match handle_client(socket, store).await {
+                        _ => println!("Error in handle_client!"),
+                    }
                 });
-
             }
             Err(e) => println!("couldn't get client: {:?}", e),
         }

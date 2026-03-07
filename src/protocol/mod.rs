@@ -34,7 +34,7 @@ use thiserror::Error; // for the error handling in the protocol parsing - derive
 
 
 #[derive(Debug, Error, PartialEq)]
-enum ProtocolError {
+pub enum ProtocolError {
     #[error("incomplete data, need more bytes")] // generates a Display implementation  
     Incomplete,
     #[error("invalid RESP type byte: 0x{0:02x}")] // 0x{0:02x} formats the byte as a two-digit hexadecimal number
@@ -50,7 +50,7 @@ enum ProtocolError {
 
 //   Command - struct-like enum variant
 #[derive(Debug, PartialEq)] //for the in-line tests/asserts at the bottom of this file
-enum Command {
+pub enum Command {
     Ping,                                          // health-checking server purposes - no args
     Get { key: String },                           // named-field, accessed by named
     Set { key: String, value: Bytes, ttl: Option<Duration> }, // 2-3 args
@@ -61,7 +61,7 @@ enum Command {
 // RESP wire format vocabulary - used in both directions of the client/server
 //   RespValue - struct-like enum variant
 #[derive(Debug, PartialEq)] //for the in-line tests/asserts at the bottom of this file
-enum RespValue {
+pub enum RespValue {
     SimpleString(String),       // unnamed field, accessed by position
     BulkString(Option<Bytes>),  // Option allows for the possibility of a null/nil bulk string, which is represented as None
     Integer(i64),
@@ -100,7 +100,7 @@ So the full pipeline is:
 //// --- LOW-LEVEL PARSING AREA ---
 
 // function-dispatcher - with recursion-possibility inside the parse_array
-fn parse_value(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>{
+pub fn parse_value(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>{
 
     // return incomplete if not enough bytes
     if *pos >= buf.len(){
@@ -361,7 +361,7 @@ fn parse_array(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>
 // Redis clients always send commands as an array of bulk-strings
 //    raw bytes  →  parse_value()  →  RespValue  →  parse_command()  →  Command
 
-fn parse_command(value: RespValue) -> Result<Command, ProtocolError> {
+pub fn parse_command(value: RespValue) -> Result<Command, ProtocolError> {
     
     // example array: ["SET", "foo", "bar"]
 
