@@ -4,8 +4,10 @@ mod server;
 mod protocol;
 
 use storage::Store; //exposes the crate to be used implicitly for the rest of the code in here.
+
 use tokio::io;
 use tokio::net::{TcpListener};
+use tokio::time::Duration;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -17,14 +19,18 @@ async fn main() -> io::Result<()> {
     // initilize the store and the ARC-dashmap
     let store: Store = Store::new();
 
+    // spawn a task that utilizes store's active key-expiry sweeping
+    let store_clone = store.clone(); // so we can call it on a OWNED `store`
+    tokio::spawn(async move {
+        store_clone.expiry_sweep(Duration::from_secs(3)).await; //every 3 seconds, sweep. 
+    });
     
+    // run listener and client-handling
     server::run(listener, store).await;
 
 
-    // do cargo run in the terminal, then open your browser and put in the url: "127.0.0.1:6379"
-    // it'll show that the server works. 
-    // Each browser request spawned a separate task - that's the concurrency model working correctly. 
-    // The multiple connections are the browser making several HTTP attempts (browsers do that: retry, prefetch, etc.) Expected behavior.
+    // test using `redis-cli` 
+
 
     Ok(()) // implicit Ok-response return
 }
