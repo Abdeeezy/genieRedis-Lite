@@ -2,9 +2,11 @@ use bytes::Bytes; // import the Bytes type from the bytes crate
 use dashmap::DashMap; // import the DashMap type from the dashmap crate
 use std::sync::Arc; // import the Arc type from the standard library for thread-safe reference counting
 
+use tokio::time::Instant;
+use tokio::time::Duration;
 pub struct Entry {
     pub value: Bytes, // raw value
-                      //pub expires_at: Option<Instant>,  // None = no expiry (attribute relevant to TTL - time-to-live context)
+    pub expires_at: Option<Instant>,  // None = no expiry (attribute relevant to TTL - time-to-live context)
 }
 
 //not familiar to rust-paradigms so this is new to me but this allows the Store struct to be cheaply cloned
@@ -27,17 +29,28 @@ impl Store {
     }
 
     pub fn get(&self, key: &str) -> Option<Bytes> {
+
+        // Lazy-check the expiry date and remove it if it exceeds it's lifetime
+        self.data.remove_if(key, |_, entry| entry.expires_at != None && Instant::now() > entry.expires_at.unwrap() );
+
         //|entry| is a closure argument. The || is closure syntax in Rust - like an anonymous function/lambda.
         return self.data.get(key).map(|entry| entry.value.clone()); // retrieves the value associated with the given key, returning it as a clone of the Bytes if found, or None if the key does not exist in the store.
 
         // also in rust, return is optional, the last expression in a function is implicitly returned.
     }
 
-    pub fn set(&self, key: &str, value: Bytes) {
-        self.data.insert(key.to_string(), Entry { value }); // to_string on the string-reference so it can be owned by the dashmap
+    pub fn set(&self, key: &str, value: Bytes, ttl: Option<Duration>) {
+
+        // convert the duration to a clock value, offset by how long it's desired to live.
+        let expires_at = ttl.map(|d| Instant::now() + d);
+
+        self.data.insert(key.to_string(), Entry { value: value, expires_at: expires_at}); // to_string on the string-reference so it can be owned by the dashmap
     }
 
     pub fn exists(&self, key: &str) -> bool {
+        // Lazy-check the expiry date and remove it if it exceeds it's lifetime
+        self.data.remove_if(key, |_, entry| entry.expires_at != None && Instant::now() > entry.expires_at.unwrap() );
+
         return self.data.contains_key(key); 
     }
 
@@ -65,7 +78,7 @@ mod tests {
     fn create_and_add_and_read() {
         //create and set key with string-value explicitly cast to bytes
         let store: Store = Store::new();
-        store.set("stargazing", Bytes::from("stars in reach"));
+        store.set("stargazing", Bytes::from("stars in reach"), None);
 
         let result: Option<Bytes> = store.get("stargazing");
 
@@ -93,6 +106,7 @@ mod tests {
         store.set(
             "stargazing",
             Bytes::from("The stars wherein a sight blazes"),
+            None
         );
 
         let deletion_result: bool = store.del("stargazing");
@@ -120,6 +134,7 @@ mod tests {
             store.set(
                 "stargazing",
                 Bytes::from("The stars wherein a sight blazes"),
+                None
             );
         });
 

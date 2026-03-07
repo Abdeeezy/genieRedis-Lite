@@ -4,6 +4,8 @@ use super::storage::Store;
 
 use tokio::net::{TcpListener, TcpStream};
 
+use tokio::time::Instant;
+
 use tokio::io::AsyncReadExt; // gives `read_buf()` which writes directly into BytesMut
 use tokio::io::AsyncWriteExt; // gives `write_all()` for writing responses back 
 
@@ -125,9 +127,8 @@ fn execute_command(cmd: protocol::Command, store: &Store) -> RespValue {
             }
         }
         protocol::Command::Set { key, value, ttl } => {
-            // TODO add TTL attribute 
             // Set
-            store.set(&key, value);
+            store.set(&key, value, ttl);
             RespValue::SimpleString("OK".to_string()) //certain success
         }
     
