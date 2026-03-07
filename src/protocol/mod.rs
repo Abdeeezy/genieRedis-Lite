@@ -1,6 +1,4 @@
 
-use std::fmt::Arguments;
-
 use tokio::time::Duration;
 use bytes::Bytes;
 use thiserror::Error; // for the error handling in the protocol parsing - derives `std::error::Error` and `Display`  

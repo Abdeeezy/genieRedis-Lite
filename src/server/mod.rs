@@ -54,7 +54,7 @@ pub async fn handle_client(
                 //&buf works because BytesMut derefs to &[u8]
                 Err(protocol::ProtocolError::Incomplete) => {
                     // if buffer incomplete, don't consume any bytes and just keep waiting for more info/data/bytes
-                    continue;
+                    break; // break inner loop -> back to outer loop to read more bytes
                 }
                 Err(error) => {
                     //send back a RESP error
