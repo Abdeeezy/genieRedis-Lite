@@ -211,6 +211,42 @@ Updated at the end of each working session.
 - Background task for active expiry sweep + lazy expiry on GET
 
 
+
+### Session 005-03 - [2026-03-07]
+**Phase:** Phase 5 - TTL / Key Expiration
+**Commit(s):** 
+- `Sesson 05 - updated Entry struct to allow for expiry date; changed Store.Get()/Store.Exists() to lazy-check the time and delete them before continuing on with their normal logic; updated store.set() for expiry/TTL.`
+- `Session 05 - implemented lazy expiry-checking/deletes on the get-set; implemented active-sweeping of expired-keys, as a method on the store, and spawned as a task in the main.rs`
+- `Session 05 - pattern fixing in storage:store get()/exists() for lazy-expiry`
+
+#### What We Did
+- Extended `Entry` struct with `expires_at: Option<Instant>` field
+- Updated `store.set()` to accept `Option<Duration>` and convert internally to `Instant` via `Instant::now() + duration`
+- Implemented lazy expiry in `store.get()` using DashMap's `remove_if` - expired keys are deleted atomically on access
+- Implemented lazy expiry in `store.exists()` - same pattern
+- Wired `ttl` from `Command::Set` through `execute_command` into the store
+- Implemented `store.expiry_sweep()` - async background loop that collects expired keys then deletes in a second pass to avoid DashMap deadlocks
+- Spawned the sweep task in `main.rs` with a 3-second interval
+- Tested with `redis-cli`: `SET foo bar EX 5`, confirmed value returns, confirmed nil after expiry
+
+#### Decisions Made
+- Duration-to-Instant conversion lives inside the store, not at the call site - keeps the store's internal representation encapsulated
+- Two-phase sweep (collect then delete) to avoid holding DashMap Ref guards during removal - prevents same-shard deadlocks
+- Sweep interval set at 3 seconds - simple fixed interval, not Redis-style probabilistic sampling
+- `expiry_sweep` is an async method on Store, spawned externally in main.rs - keeps Store runtime-agnostic
+
+#### Mistakes / Learnings
+- `.unwrap()` on `expires_at` inside `remove_if` is a crash risk for keys without TTL - must guard with a None check or use `.map_or()`
+- DashMap iteration yields Ref guards - safe as long as no `.await` is crossed while holding them
+- `async fn` return type is implicit - no need to manually specify a future
+- `&self` in an async method causes lifetime issues with `tokio::spawn` - clone the Store and call on the owned clone in a `async move` block
+
+#### Open Questions
+- One-shot `redis-cli` commands sometimes stall on rapid repeated use - likely a connection handling issue in handle_client, not TTL-related. Will investigate later. I wonder it's root-cause..?
+
+#### Next Session
+- Phase 6: Persistence - AOF or snapshot
+
 <!-- Copy-Paste Template  -->
 <!--
 ### Session 00X - [DATE]

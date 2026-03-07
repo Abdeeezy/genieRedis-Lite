@@ -102,8 +102,9 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 - `store.set(key, value, ttl: Option<Duration>)`
 - `store.del(key) -> bool`
 - `store.exists(key) -> bool`
+- `async expiry_sweep(&self, interval: Duration)`
 
-**Status:** ⬜ Not started
+**Status:** implemented.
 
 ---
 
