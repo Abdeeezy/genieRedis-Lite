@@ -144,7 +144,7 @@ Updated at the end of each working session.
 - None
 
 #### Next Session
-- Implement parse_command() - high-level layer: RespValue (array of bulk strings) → Command enum
+- Implement parse_command() - high-level layer: RespValue (array of bulk strings) -> Command enum
 - Implement encode() - serialize RespValue back to RESP bytes for server responses
 - Wire protocol into the TCP server (Phase 4)
 
@@ -176,6 +176,39 @@ Updated at the end of each working session.
 #### Next Session
 - Phase 4: Wire protocol into the TCP server
 - handle_client reads bytes, parses commands, executes against Store, encodes and writes responses
+
+
+### Session 005-02 - [2026-03-07]
+**Phase:** Phase 4 - Wiring Protocol to Storage
+**Commit(s):** 
+- `session 05 - connected server with protocol; handling TcpStream buffer; executing commands; tested with redis-cli and it works.`
+
+#### What We Did
+- Rewrote `handle_client()` - now reads bytes into a persistent `BytesMut` buffer, parses RESP frames, dispatches commands against the store, encodes responses, and writes them back to the socket
+- Implemented a dual-loop structure: outer loop reads from the socket, inner loop drains all complete RESP "frames" from the buffer before waiting for more data - handles pipelined commands
+- `handle_client()` now returns `Result<(), Box<dyn std::error::Error>>` with error handling in the `tokio::spawn` call in `run()`
+- Implemented `execute_command(cmd, store) -> RespValue` as a pure dispatch function - no IO, just takes a command and store reference, returns a RESP value
+- All five commands wired up: PING -> SimpleString("PONG"), GET -> BulkString or null, SET -> SimpleString("OK"), DEL -> Integer(1/0), EXISTS -> Integer(1/0)
+- Smoke tested with `redis-cli` - PING, SET, GET, DEL, EXISTS all working end-to-end
+
+#### Decisions Made
+- `execute_command` returns `RespValue` rather than writing to the socket directly - keeps IO out of dispatch logic, makes it unit-testable without Tokio or a real socket
+- Inner parse loop to handle pipelined commands - without it, two commands in one TCP packet would stall on the second until the next read
+
+#### Mistakes / Learnings
+- `read_buf().await` returns the number of bytes read - client-disconnect detection must check that return value, not `buf.len()`
+- `BytesMut` derefs to `&[u8]` so it can be passed directly to `parse_value`
+- `buf.clear()` only needed on RESP-level parse errors (corrupted stream) - command-level errors (bad args) don't need it because the buffer was already advanced past the valid frame
+- Unnecessary `&` on method calls like `&store.exists()` when the method returns by value - just call directly
+- for Redis-standards, SET returns `+OK\r\n` (SimpleString), not an integer
+
+#### Open Questions
+- None
+
+#### Next Session
+- Phase 5: TTL / key expiration
+- Extend `store.set()` to accept an optional Duration
+- Background task for active expiry sweep + lazy expiry on GET
 
 
 <!-- Copy-Paste Template  -->

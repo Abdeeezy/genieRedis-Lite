@@ -59,12 +59,15 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 **Key types:**
 - Tukio::TCPStream
 - Tukio::TcpListener
+- bytes::{Buf, Bytes, BytesMut};
 
 **Interface:**
-- pub async fn handle_client(socket: TcpStream, store: Store)
-- pub async fn run(listener: TcpListener, store: Store)
+- `pub async fn handle_client(socket: TcpStream, store: Store)`
+    - helper-function for the above:
+        - `fn execute_command(cmd: protocol::Command, store: &Store) -> RespValue`
+- `pub async fn run(listener: TcpListener, store: Store)`
 
-**Status:** skeleton-status but it's working. connections are handled, simple logs..
+**Status:** works and can be tested with redis-cli
 
 ---
 
