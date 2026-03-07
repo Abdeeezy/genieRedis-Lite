@@ -32,7 +32,7 @@ impl Store {
     pub fn get(&self, key: &str) -> Option<Bytes> {
         // Lazy-check the expiry date and remove it if it exceeds it's lifetime
         self.data.remove_if(key, |_, entry| {
-            entry.expires_at != None && Instant::now() > entry.expires_at.unwrap()
+            entry.expires_at.map_or(false, |expiry| Instant::now() > expiry)
         });
 
         //|entry| is a closure argument. The || is closure syntax in Rust - like an anonymous function/lambda.
@@ -57,7 +57,7 @@ impl Store {
     pub fn exists(&self, key: &str) -> bool {
         // Lazy-check the expiry date and remove it if it exceeds it's lifetime
         self.data.remove_if(key, |_, entry| {
-            entry.expires_at != None && Instant::now() > entry.expires_at.unwrap()
+            entry.expires_at.map_or(false, |expiry| Instant::now() > expiry)
         });
 
         return self.data.contains_key(key);
@@ -80,7 +80,7 @@ impl Store {
             sleep(interval).await;
 
             let mut key_vec: Vec<String> = Vec::new();
-            
+
             // pass 1: collect expired keys
             for item in self.data.iter() {
                 let key = item.key();
