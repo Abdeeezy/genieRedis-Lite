@@ -82,7 +82,7 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 - `fn parse_command(value: RespValue) -> Result<Command, ProtocolError>`
 - `encode(value: RespValue) -> Bytes`
 
-**Status:** In progress
+**Status:** finished
 
 ---
 

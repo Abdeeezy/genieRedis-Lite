@@ -149,6 +149,35 @@ Updated at the end of each working session.
 - Wire protocol into the TCP server (Phase 4)
 
 
+### Session 005 - [2026-03-07]
+**Phase:** Phase 3 - RESP Protocol Parser (continued)
+**Commit(s):** 
+- `Session 05 - updated documentation; implemented parse_command() with arg error handling and such and returning Command-Enum objects; implemented encode() to turn RESP-value-types into bytes.`
+- `session 05 - LLM-Generated tests established for testing parse_command() and encode()`
+
+#### What We Did
+- Implemented `parse_command()` - converts RespValue (array of bulk strings) into typed Command enum
+- Implemented `encode()` - serializes RespValue back to RESP wire format bytes (inverse of parse_value)
+- Generated 30 tests covering both functions: arg count validation, all command types, all RESP types, edge cases, round-trip encode-to-parse consistency
+- All protocol tests passing 
+
+#### Decisions Made
+- Redis-style `EX`/`PX` flags for SET TTL instead of positional third arg - slightly more parsing complexity, but compatible with redis-cli and standard Redis clients
+
+#### Mistakes / Learnings
+- `String::from_utf8` takes owned `Vec<u8>`, `std::str::from_utf8` borrows `&[u8]` - use the latter when you just need to read
+- `{:?}` debug format on Bytes prints `b"foo"` not raw bytes - use `extend_from_slice` for binary data instead of format strings
+- `split_first()` returns `Option<(&first, &rest)>` - good for separating command name from args without consuming the vec
+- `.ok_or()?` pattern cleanly converts `None` into a typed error and propagates
+
+#### Open Questions
+- Should `WrongArgCount.expected` be a String instead of usize to handle "2 or 4" cases? (I dont care for now)
+
+#### Next Session
+- Phase 4: Wire protocol into the TCP server
+- handle_client reads bytes, parses commands, executes against Store, encodes and writes responses
+
+
 <!-- Copy-Paste Template  -->
 <!--
 ### Session 00X - [DATE]
