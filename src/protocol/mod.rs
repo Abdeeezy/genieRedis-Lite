@@ -33,7 +33,7 @@ use thiserror::Error; // for the error handling in the protocol parsing - derive
 //// Define ENUMS/data-types for use 
 
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 enum ProtocolError {
     #[error("incomplete data, need more bytes")] // generates a Display implementation  
     Incomplete,
@@ -49,6 +49,7 @@ enum ProtocolError {
 
 
 //   Command - struct-like enum variant
+#[derive(Debug, PartialEq)] //for the in-line tests/asserts at the bottom of this file
 enum Command {
     Ping,                                          // health-checking server purposes - no args
     Get { key: String },                           // named-field, accessed by named
@@ -59,7 +60,7 @@ enum Command {
 
 // RESP wire format vocabulary - used in both directions of the client/server
 //   RespValue - struct-like enum variant
-#[derive(Debug)] //for the in-line tests/asserts at the bottom of this file
+#[derive(Debug, PartialEq)] //for the in-line tests/asserts at the bottom of this file
 enum RespValue {
     SimpleString(String),       // unnamed field, accessed by position
     BulkString(Option<Bytes>),  // Option allows for the possibility of a null/nil bulk string, which is represented as None
@@ -968,5 +969,244 @@ mod tests {
             other => panic!("expected Array, got {:?}", other),
         }
         assert_eq!(pos, buf.len());
+    }
+}
+
+
+#[cfg(test)]
+mod command_tests {
+    use super::*;
+    use bytes::Bytes;
+    use std::time::Duration;
+
+    // helper to build a BulkString RespValue
+    fn bulk(s: &str) -> RespValue {
+        RespValue::BulkString(Some(Bytes::from(s.to_string())))
+    }
+
+    fn cmd(args: Vec<&str>) -> RespValue {
+        RespValue::Array(args.into_iter().map(bulk).collect())
+    }
+
+    // ---- parse_command tests ----
+
+    #[test]
+    fn parse_ping() {
+        let result = parse_command(cmd(vec!["PING"])).unwrap();
+        assert_eq!(result, Command::Ping);
+    }
+
+    #[test]
+    fn parse_ping_with_extra_args() {
+        let result = parse_command(cmd(vec!["PING", "hello"])).unwrap();
+        assert_eq!(result, Command::Ping);
+    }
+
+    #[test]
+    fn parse_ping_lowercase() {
+        let result = parse_command(cmd(vec!["ping"])).unwrap();
+        assert_eq!(result, Command::Ping);
+    }
+
+    #[test]
+    fn parse_get_valid() {
+        let result = parse_command(cmd(vec!["GET", "mykey"])).unwrap();
+        assert_eq!(result, Command::Get { key: "mykey".to_string() });
+    }
+
+    #[test]
+    fn parse_get_no_args() {
+        let result = parse_command(cmd(vec!["GET"]));
+        assert!(matches!(result, Err(ProtocolError::WrongArgCount { .. })));
+    }
+
+    #[test]
+    fn parse_get_too_many_args() {
+        let result = parse_command(cmd(vec!["GET", "a", "b"]));
+        assert!(matches!(result, Err(ProtocolError::WrongArgCount { .. })));
+    }
+
+    #[test]
+    fn parse_set_no_ttl() {
+        let result = parse_command(cmd(vec!["SET", "foo", "bar"])).unwrap();
+        assert_eq!(result, Command::Set {
+            key: "foo".to_string(),
+            value: Bytes::from("bar"),
+            ttl: None,
+        });
+    }
+
+    #[test]
+    fn parse_set_with_ex() {
+        let result = parse_command(cmd(vec!["SET", "foo", "bar", "EX", "10"])).unwrap();
+        assert_eq!(result, Command::Set {
+            key: "foo".to_string(),
+            value: Bytes::from("bar"),
+            ttl: Some(Duration::from_secs(10)),
+        });
+    }
+
+    #[test]
+    fn parse_set_with_px() {
+        let result = parse_command(cmd(vec!["SET", "foo", "bar", "PX", "5000"])).unwrap();
+        assert_eq!(result, Command::Set {
+            key: "foo".to_string(),
+            value: Bytes::from("bar"),
+            ttl: Some(Duration::from_millis(5000)),
+        });
+    }
+
+    #[test]
+    fn parse_set_invalid_flag() {
+        let result = parse_command(cmd(vec!["SET", "foo", "bar", "XX", "10"]));
+        assert!(matches!(result, Err(ProtocolError::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn parse_set_wrong_arg_count() {
+        let result = parse_command(cmd(vec!["SET", "foo"]));
+        assert!(matches!(result, Err(ProtocolError::WrongArgCount { .. })));
+    }
+
+    #[test]
+    fn parse_set_three_args_invalid() {
+        let result = parse_command(cmd(vec!["SET", "foo", "bar", "EX"]));
+        assert!(matches!(result, Err(ProtocolError::WrongArgCount { .. })));
+    }
+
+    #[test]
+    fn parse_del_valid() {
+        let result = parse_command(cmd(vec!["DEL", "mykey"])).unwrap();
+        assert_eq!(result, Command::Del { key: "mykey".to_string() });
+    }
+
+    #[test]
+    fn parse_exists_valid() {
+        let result = parse_command(cmd(vec!["EXISTS", "mykey"])).unwrap();
+        assert_eq!(result, Command::Exists { key: "mykey".to_string() });
+    }
+
+    #[test]
+    fn parse_unknown_command() {
+        let result = parse_command(cmd(vec!["FLUSHALL"]));
+        assert!(matches!(result, Err(ProtocolError::InvalidCommand(_))));
+    }
+
+    #[test]
+    fn parse_non_array_input() {
+        let result = parse_command(RespValue::SimpleString("PING".to_string()));
+        assert!(matches!(result, Err(ProtocolError::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn parse_array_with_non_bulk_string() {
+        let input = RespValue::Array(vec![
+            RespValue::Integer(42),
+        ]);
+        let result = parse_command(input);
+        assert!(matches!(result, Err(ProtocolError::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn parse_empty_array() {
+        let input = RespValue::Array(vec![]);
+        let result = parse_command(input);
+        assert!(matches!(result, Err(ProtocolError::InvalidFormat(_))));
+    }
+}
+
+#[cfg(test)]
+mod encode_tests {
+    use super::*;
+    use bytes::Bytes;
+
+    #[test]
+    fn encode_simple_string() {
+        let val = RespValue::SimpleString("OK".to_string());
+        assert_eq!(encode(&val), Bytes::from("+OK\r\n"));
+    }
+
+    #[test]
+    fn encode_error() {
+        let val = RespValue::Error("ERR something".to_string());
+        assert_eq!(encode(&val), Bytes::from("-ERR something\r\n"));
+    }
+
+    #[test]
+    fn encode_integer() {
+        let val = RespValue::Integer(42);
+        assert_eq!(encode(&val), Bytes::from(":42\r\n"));
+    }
+
+    #[test]
+    fn encode_negative_integer() {
+        let val = RespValue::Integer(-1);
+        assert_eq!(encode(&val), Bytes::from(":-1\r\n"));
+    }
+
+    #[test]
+    fn encode_bulk_string() {
+        let val = RespValue::BulkString(Some(Bytes::from("foo")));
+        assert_eq!(encode(&val), Bytes::from("$3\r\nfoo\r\n"));
+    }
+
+    #[test]
+    fn encode_null_bulk_string() {
+        let val = RespValue::BulkString(None);
+        assert_eq!(encode(&val), Bytes::from("$-1\r\n"));
+    }
+
+    #[test]
+    fn encode_empty_bulk_string() {
+        let val = RespValue::BulkString(Some(Bytes::from("")));
+        assert_eq!(encode(&val), Bytes::from("$0\r\n\r\n"));
+    }
+
+    #[test]
+    fn encode_array() {
+        let val = RespValue::Array(vec![
+            RespValue::BulkString(Some(Bytes::from("SET"))),
+            RespValue::BulkString(Some(Bytes::from("foo"))),
+            RespValue::BulkString(Some(Bytes::from("bar"))),
+        ]);
+        let expected = "*3\r\n$3\r\nSET\r\n$3\r\nfoo\r\n$3\r\nbar\r\n";
+        assert_eq!(encode(&val), Bytes::from(expected));
+    }
+
+    #[test]
+    fn encode_empty_array() {
+        let val = RespValue::Array(vec![]);
+        assert_eq!(encode(&val), Bytes::from("*0\r\n"));
+    }
+
+    #[test]
+    fn round_trip_simple_string() {
+        let original = RespValue::SimpleString("hello".to_string());
+        let encoded = encode(&original);
+        let mut pos = 0;
+        let decoded = parse_value(&encoded, &mut pos).unwrap();
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn round_trip_bulk_string() {
+        let original = RespValue::BulkString(Some(Bytes::from("hello world")));
+        let encoded = encode(&original);
+        let mut pos = 0;
+        let decoded = parse_value(&encoded, &mut pos).unwrap();
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn round_trip_array() {
+        let original = RespValue::Array(vec![
+            RespValue::Integer(1),
+            RespValue::SimpleString("OK".to_string()),
+            RespValue::BulkString(Some(Bytes::from("data"))),
+        ]);
+        let encoded = encode(&original);
+        let mut pos = 0;
+        let decoded = parse_value(&encoded, &mut pos).unwrap();
+        assert_eq!(original, decoded);
     }
 }
