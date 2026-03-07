@@ -16,7 +16,7 @@ A log of non-trivial technical decisions: what we chose, what we rejected, and w
 ---
 
 ### D001 — DashMap over RwLock\<HashMap\>
-**Date:** [2026-03-02 ~4AM]  
+**Date:** [2026-03-02]  
 **Phase:** Phase 1 — Storage  
 **Session:** Session 001
 
@@ -40,7 +40,7 @@ Surface-level consideration and decision made to streamline progress faster. If 
 ---
 
 ### D002 — Tokio as Async Runtime
-**Date:** [2026-03-02 ~4AM]  
+**Date:** [2026-03-02]  
 **Phase:** Phase 2 — Server  
 **Session:** Session 001
 
@@ -59,6 +59,25 @@ Seems like a strong reputation standard for async Rust. Best documentation, most
 - Compile times are heavier
 - Must be careful about blocking operations on the async executor (use `tokio::task::spawn_blocking` if needed)
 ---
+
+### D003 — Protocol SET-Command Format Time-To-Live time-variability 
+**Date:** [2026-03-07]  
+**Phase:**   
+**Session:** Session 005
+
+**Decision:**  decided on time-variation flag for the SET-Command
+
+**Options Considered:**
+|                Option             |    Notes   |
+|-----------------------------------|------------|
+| forcing seconds only              | lazy       |
+| allowing seconds or milliseconds  | flexibility|
+ 
+**Why [Chosen Option]:**  
+Chose establishing time-choice to allow for flexibility and precision. Also to match with Redis-standards; it'll work with stuff like Redis-cli more seamlessly.
+
+**Tradeoffs:**  
+Nothing.
 
 <!-- COPY-PASTE TEMPLATE -->
 <!--

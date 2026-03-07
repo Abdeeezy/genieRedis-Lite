@@ -1,4 +1,6 @@
 
+use std::fmt::Arguments;
+
 use tokio::time::Duration;
 use bytes::Bytes;
 use thiserror::Error; // for the error handling in the protocol parsing - derives `std::error::Error` and `Display`  
@@ -95,6 +97,8 @@ So the full pipeline is:
 */
 
 //// --- LOW-LEVEL PARSING AREA ---
+
+// function-dispatcher - with recursion-possibility inside the parse_array
 fn parse_value(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>{
 
     // return incomplete if not enough bytes
@@ -353,21 +357,188 @@ fn parse_array(buf: &[u8], pos: &mut usize) -> Result<RespValue, ProtocolError>
 
 
 //// --- High-LEVEL PARSING AREA ---
-// Redis clients always send commands as an array of bulk strings. 
+// Redis clients always send commands as an array of bulk-strings
+//    raw bytes  →  parse_value()  →  RespValue  →  parse_command()  →  Command
+
 fn parse_command(value: RespValue) -> Result<Command, ProtocolError> {
     
-    // ensure array of bulk strings
+    // example array: ["SET", "foo", "bar"]
+
+
+    // ensure array of RespValues, force it into this parts variable.
     let parts = match value {
-        RespValue::Array(parts) => parts,                           // success-case
-        _ => return Err(ProtocolError::InvalidFormat(("expected array").into())),   // fail-case
+        RespValue::Array(parts) => parts,                           
+        _ => return Err(ProtocolError::InvalidFormat(("expected array").into())),   
     };
     
+    // transform vec<RespValue> into vec<Bytes>
+    let byte_parts: Vec<Bytes> = parts.into_iter().map( 
+        // test each part by matching against a bulkstring, declaring each layer and if bytes could be extracted, then result in a success "Ok(bytes)"
+        |part| 
+        match part {
+            RespValue::BulkString(Some(b)) => Ok(b),
+        _ => Err(ProtocolError::InvalidFormat("expected bulk string".into())),
+    })
+    .collect::<Result<Vec<Bytes>, ProtocolError>>()?; //? at the end propagates the first error if any element wasn't a valid bulk string. forcing either a vector-of-bytes or just an error
+                                                        //The ? operator says: "if this is an Err, return it from the function immediately. If it's Ok, unwrap the value and keep going"
+ 
 
-    Ok((Command::Ping)) // TODO - remove. this was just to get rid of compiler error
+
+    // isolate the command-name (first-item) from the rest of the elements
+    let (command_name, args) = byte_parts.split_first()
+        .ok_or(ProtocolError::InvalidFormat("empty command attempt".into()))?; // if it's okay, keep it pushing, otherwise: propagate error..
+         //.ok_or()? pattern converts None into my error-type and propagates it 
+
+    // convert the bytes into a string, propagate error if found..
+    let command_name_str = String::from_utf8(command_name.to_vec())
+        .map_err(|_| ProtocolError::InvalidFormat("invalid utf8".into()))?
+        .to_uppercase(); //uppercase it if successful.
+
     
+
+    // check command-type and the args supplied
+    match command_name_str.as_str() {
+        "PING" => { 
+            // no args needed, if there are arguments, disregard them.. 
+            return Ok(Command::Ping);
+        }
+        "GET" => { 
+            // return error if arg-count wrong, otherwise parse arg
+            if args.len() != 1
+            {
+                return Err(ProtocolError::WrongArgCount { command: "GET".to_string(), expected: 1, got: args.len() })
+            }
+            else
+            {
+                // convert the bytes into a string, propagate error if found..
+                //  `String::from_utf8` takes `Vec<u8>` not `&[u8]`, it also wants ownership
+                //  `std::str::from_utf8` takes `&[u8]`, and it just borrows. 
+                let key = std::str::from_utf8(&args[0])
+                    .map_err(|_| ProtocolError::InvalidFormat("invalid utf8".into()))?
+                    .to_string();
+
+                return Ok(Command::Get { key });
+            }
+        }
+        "SET" => { 
+            // return error if arg-count wrong, otherwise parse arg
+            if args.len() != 2 && args.len() != 4
+            {
+                return Err(ProtocolError::WrongArgCount { command: "SET".to_string(), expected: 2, got: args.len() })
+            }
+            else
+            {
+                // convert the bytes into a string, propagate error if found..
+                //  `String::from_utf8` takes `Vec<u8>` not `&[u8]`, it also wants ownership
+                //  `std::str::from_utf8` takes `&[u8]`, and it just borrows. 
+                let key = std::str::from_utf8(&args[0])
+                    .map_err(|_| ProtocolError::InvalidFormat("invalid utf8".into()))? 
+                    .to_string();
+                
+                // if TIME-TO-LIVE 3rd and 4th arguments supplied, extract 
+                let time_to_live_value = if args.len() == 4 {
+                    // Redis-standard for TTL has flags to represent EX(seconds) or PX(milliseconds)
+                    let flag = std::str::from_utf8(&args[2])
+                        .map_err(|_| ProtocolError::InvalidFormat("invalid utf8".into()))? //propagate error if invalid string
+                        .to_uppercase();
+                    let amount = std::str::from_utf8(&args[3])
+                        .map_err(|_| ProtocolError::InvalidFormat("invalid utf8".into()))?//propagate error if invalid string
+                        .parse::<u64>()
+                        .map_err(|_| ProtocolError::InvalidFormat("invalid ttl value".into()))?;// propagate error if integer-parse failed
+                    match flag.as_str() {
+                        "EX" => Some(Duration::from_secs(amount)), //object that handles seconds and nanoseconds.
+                        "PX" => Some(Duration::from_millis(amount)),
+                        _ => return Err(ProtocolError::InvalidFormat( // wrong-flag error 
+                            format!("unknown SET flag: {}", flag)
+                        )),
+                    }
+                } else {
+                    None //nothing
+                };
+
+                let value_to_set = args[1].clone();
+                return Ok(Command::Set { key, value: (value_to_set), ttl: time_to_live_value });
+            }
+        }
+        "DEL" => { 
+            // return error if arg-count wrong, otherwise parse arg
+            if args.len() != 1
+            {
+                return Err(ProtocolError::WrongArgCount { command: "DEL".to_string(), expected: 1, got: args.len() })
+            }
+            else
+            {
+                // convert the bytes into a string, propagate error if found..
+                //  `String::from_utf8` takes `Vec<u8>` not `&[u8]`, it also wants ownership
+                //  `std::str::from_utf8` takes `&[u8]`, and it just borrows. 
+                let key = std::str::from_utf8(&args[0])
+                    .map_err(|_| ProtocolError::InvalidFormat("invalid utf8".into()))?
+                    .to_string();
+
+                return Ok(Command::Del { key } );
+            }
+        }
+        "EXISTS" => { 
+            // return error if arg-count wrong, otherwise parse arg
+            if args.len() != 1
+            {
+                return Err(ProtocolError::WrongArgCount { command: "EXISTS".to_string(), expected: 1, got: args.len() })
+            }
+            else
+            {
+                // convert the bytes into a string, propagate error if found..
+                //  `String::from_utf8` takes `Vec<u8>` not `&[u8]`, it also wants ownership
+                //  `std::str::from_utf8` takes `&[u8]`, and it just borrows. 
+                let key = std::str::from_utf8(&args[0])
+                    .map_err(|_| ProtocolError::InvalidFormat("invalid utf8".into()))?
+                    .to_string();
+
+                return Ok(Command::Exists { key } );
+            }
+        }
+        _ => Err(ProtocolError::InvalidCommand(command_name_str)),
+    }
+     
 }
 
 
+// inverse of the parse_value function.
+pub fn encode(value: &RespValue)-> Bytes{
+     // parse each RespValue into their respective byte-string sequence
+    match value {
+        RespValue::SimpleString(str) => {
+            Bytes::from(format!("+{}\r\n", str))
+        },
+        RespValue::Error(errStr) => {
+            Bytes::from(format!("-{}\r\n", errStr))
+        },
+        RespValue::Integer(int) => {
+            Bytes::from(format!(":{}\r\n", int))
+        },
+        RespValue::BulkString(None) => { 
+             Bytes::from(format!("$-1\r\n"))
+        },
+        RespValue::BulkString(Some(data)) => {
+            // turn into vec of bytes so we can append the data (postional string formatting couldn't take the Bytes)
+            let mut byte_buffer = format!("${}\r\n", data.len()).into_bytes();
+            byte_buffer.extend_from_slice(data);
+            byte_buffer.extend_from_slice(b"\r\n");
+            Bytes::from(byte_buffer)
+        },
+        RespValue::Array(vec) => {
+            // vec of bytes so that it's easy to append the bytes retrieved from recursively calling this function
+            let mut byte_buffer = format!("*{}\r\n", vec.len()).into_bytes();
+
+            for item in vec {
+                // recursively call encode(), bytes are returned of course so all that's needed is to concatenate
+                byte_buffer.extend_from_slice(&encode(item));
+            }
+
+            Bytes::from(byte_buffer)
+        }
+    }
+
+}
 
 
 
