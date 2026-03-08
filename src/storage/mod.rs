@@ -1,12 +1,14 @@
 use bytes::Bytes; // import the Bytes type from the bytes crate
 use dashmap::DashMap;
-use std::future;
+
 // import the DashMap type from the dashmap crate
 use std::sync::Arc; // import the Arc type from the standard library for thread-safe reference counting
 
 use tokio::time::Duration;
 use tokio::time::Instant;
 use tokio::time::sleep;
+
+#[derive(Clone)]
 pub struct Entry {
     pub value: Bytes,                // raw value
     pub expires_at: Option<Instant>, // None = no expiry (attribute relevant to TTL - time-to-live context)
@@ -16,7 +18,7 @@ pub struct Entry {
 //      - and what it's actually doing is making any `clone()` on Store just increment the Arc refcount, not deep-copy'ing the DashMap
 #[derive(Clone)]
 pub struct Store {
-    data: Arc<DashMap<String, Entry>>, // thread-safe, concurrent hash map for storing key-value pairs {string = hash key, Entry = value-in-bytes + metadata}
+    pub data: Arc<DashMap<String, Entry>>, // thread-safe, concurrent hash map for storing key-value pairs {string = hash key, Entry = value-in-bytes + metadata}
 }
 
 // implement the methods for the Store struct
@@ -27,6 +29,12 @@ impl Store {
         Store {
             data: Arc::new(DashMap::new()),
         }
+    }
+    
+    pub fn snapshot_entries(&self) -> Vec<(String, Entry)>{
+        self.data.iter()
+                    .map(|kv_pair| (kv_pair.key().clone(), kv_pair.value().clone()))
+                    .collect()
     }
 
     pub fn get(&self, key: &str) -> Option<Bytes> {

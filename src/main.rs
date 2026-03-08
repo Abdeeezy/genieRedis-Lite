@@ -2,6 +2,7 @@
 mod storage;
 mod server;
 mod protocol;
+mod persistence;
 
 use storage::Store; //exposes the crate to be used implicitly for the rest of the code in here.
 
