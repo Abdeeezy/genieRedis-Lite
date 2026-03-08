@@ -10,6 +10,7 @@ use storage::Store; //exposes the crate to be used implicitly for the rest of th
 use tokio::io;
 use tokio::net::{TcpListener};
 use tokio::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 
 use std::sync::Arc;
@@ -29,6 +30,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:6379").await?; // Redis standard is 6379
 
     println!("Redis Main.rs-Testing Entry..");
+
+
+    let shutdown_token = CancellationToken::new(); // like Arc - you clone it to share it. When any clone calls `.cancel()`, all clones see it.
+
 
     // the sequence should be: load snapshot if exists -> replay AOF on top -> then open a fresh AOF writer.
     // initilize the store and the ARC-dashmap
@@ -77,10 +82,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
 
-    
-    // run listener and client-handling
-    server::run(listener, store, aof_writer).await;
+    let shutdown_clone = shutdown_token.clone();
 
+    // run the server with cancellation-proofing
+    tokio::select! {
+        // run listener and client-handling
+        _ = server::run(listener, store.clone(), aof_writer.clone(), shutdown_clone) => {
+            // run() returned on its own (shouldn't happen, but handle it)
+        }
+        _ = tokio::signal::ctrl_c() => {
+            println!("Ctrl+C received, shutting down...");
+            shutdown_token.cancel(); // state propagates to clones who refer to it
+        }
+    }
+    
+
+    // -- shutdown clean up --
+    // FINAL SNAPSHOT and FLUSH AOF
+    // clones not needed, last-step, we will consume them
+    println!("Saving final snapshot...");
+    let entries = persistence::snapshot::collect_snapshot(&store);
+    match tokio::task::spawn_blocking(move || {
+        persistence::snapshot::save(entries, Path::new("dump.rdb")) //snapshot
+    }).await {
+        Ok(Ok(())) => {
+            let mut writer = aof_writer.lock().unwrap(); 
+            writer.truncate().unwrap_or_else(|e| eprintln!("AOF truncate failed: {}", e)); //truncate
+            println!("Final snapshot saved, AOF truncated.");
+        }
+        Ok(Err(e)) => eprintln!("Final snapshot save error: {}", e),
+        Err(e) => eprintln!("Final snapshot task panicked: {}", e),
+    }
 
     // BTW: test using `redis-cli` 
 

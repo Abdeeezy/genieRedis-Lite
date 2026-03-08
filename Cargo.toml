@@ -13,6 +13,7 @@ thiserror = "1"                                   # Error types
 tracing = "0.1"                                     # Logging
 tracing-subscriber = "0.3"
 bincode = "1.3.3"
+tokio-util = "0.7.18"
 
 [dev-dependencies]
 tokio-test = "0.4"

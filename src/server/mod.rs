@@ -1,6 +1,6 @@
 use super::protocol;
-use super::protocol::RespValue;
 use super::protocol::Command;
+use super::protocol::RespValue;
 use super::storage::Store;
 
 use tokio::net::{TcpListener, TcpStream};
@@ -8,21 +8,21 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::time::Instant;
 
 use tokio::io::AsyncReadExt; // gives `read_buf()` which writes directly into BytesMut
-use tokio::io::AsyncWriteExt; // gives `write_all()` for writing responses back 
+use tokio::io::AsyncWriteExt; // gives `write_all()` for writing responses back
+use tokio_util::sync::CancellationToken;
 
 use bytes::{Buf, Bytes, BytesMut}; // BytesMut can be thought of as containing a buf: Arc<Vec<u8>>
 // BytesMut's BufMut implementation will implicitly grow its buffer as necessary.
 
+use super::persistence::aof::AofWriter;
 use std::sync::Arc;
 use std::sync::Mutex;
-use super::persistence::aof::AofWriter;
-
 
 // TCP client handling and lister loop
 pub async fn handle_client(
     mut socket: TcpStream,
     store: Store,
-    aof_writer: Arc<Mutex<AofWriter>>
+    aof_writer: Arc<Mutex<AofWriter>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // todo
     println!("Being handled!");
@@ -73,7 +73,7 @@ pub async fn handle_client(
                 }
                 Ok(value) => {
                     // temp-store for the AOF-log further on..
-                    let raw = buf[..pos].to_vec(); 
+                    let raw = buf[..pos].to_vec();
 
                     // After a successful parse, advance the buffer
                     buf.advance(pos); // drop the consumed bytes  (bytes::Buf.advance())
@@ -84,7 +84,8 @@ pub async fn handle_client(
                             // if command-parsing successful...
 
                             // check if it's a SET or DEL (the only commands we care to log the AOF)
-                            let is_write = matches!(&cmd, Command::Set { .. } | Command::Del { .. });
+                            let is_write =
+                                matches!(&cmd, Command::Set { .. } | Command::Del { .. });
 
                             //execute the command on the KV-Store
                             let result = execute_command(cmd, &store);
@@ -151,32 +152,46 @@ pub fn execute_command(cmd: protocol::Command, store: &Store) -> RespValue {
             store.set(&key, value, ttl);
             RespValue::SimpleString("OK".to_string()) //certain success
         }
-    
     }
-
 }
 
-pub async fn run(listener: TcpListener, store: Store, aof_writer: Arc<Mutex<AofWriter>>) {
+pub async fn run(
+    listener: TcpListener,
+    store: Store,
+    aof_writer: Arc<Mutex<AofWriter>>,
+    shutdown: CancellationToken,
+) {
     println!("-- accepting inbound connections --");
 
     //forever loop
     loop {
-        // listen for client-connections, if found, run handle_client code.
-        match listener.accept().await {
-            Ok((socket, addr)) => {
-                // "overshadowing" the variable `store` which only occurs in this scope; the store-variable remains untouched outside of this scope
-                let store = store.clone(); // clone per iteration, original stays   
-                let aof_writer = aof_writer.clone(); // clone the Arc before moving into spawn (ggain, just increments the reference count)
-
-                // spawn an async task to allow for execution-concurrency.
-                tokio::spawn(async move {
-                    match handle_client(socket, store, aof_writer).await {
-                        Ok(_) => println!("Client session ended."), 
-                        _ => println!("Error in handle_client!"),
-                    }
-                });
+        // macro explained..
+        // Race two futures: accept a new connection OR receive shutdown signal.
+        // Whichever resolves first runs its branch; the other is dropped.
+        tokio::select! {
+            _ = shutdown.cancelled() => {
+                println!("Shutdown signal received, stopping accept loop.");
+                break;
             }
-            Err(e) => println!("couldn't get client: {:?}", e),
+            // listen for client-connections, if found, run handle_client code.
+            result = listener.accept() => {
+                match result {
+                    Ok((socket, _addr)) => {
+                        // "overshadowing" the variable `store` which only occurs in this scope; the store-variable remains untouched outside of this scope
+                        let store = store.clone(); // clone per iteration, original stays
+                        let aof_writer = aof_writer.clone(); // clone the Arc before moving into spawn (ggain, just increments the reference count)
+
+                        // spawn an async task to allow for execution-concurrency.
+                        tokio::spawn(async move {
+                            match handle_client(socket, store, aof_writer).await {
+                                Ok(_) => println!("Client session ended."),
+                                Err(e) => println!("Error in handle_client: {}", e),
+                            }
+                        });
+                    }
+                    Err(e) => println!("couldn't get client: {:?}", e),
+                }
+            }
         }
     }
 }
