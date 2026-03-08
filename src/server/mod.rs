@@ -150,6 +150,7 @@ pub async fn run(listener: TcpListener, store: Store) {
                 // spawn an async task to allow for execution-concurrency.
                 tokio::spawn(async move {
                     match handle_client(socket, store).await {
+                        Ok(_) => println!("Client session ended."), 
                         _ => println!("Error in handle_client!"),
                     }
                 });
