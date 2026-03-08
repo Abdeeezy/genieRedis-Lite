@@ -1,5 +1,7 @@
 /target
 *.db
 *.aof
+*.rdb
 .env
 EOF
+

@@ -30,7 +30,7 @@ use bytes::Bytes;
 ///// --- STRUCTS / ENUMS --- 
 // Serializable representation of one entry
 #[derive(Serialize, Deserialize)] // Serde-derives for the bincode
-struct SnapshotEntry {
+pub struct SnapshotEntry {
     key: String,
     value: Vec<u8>,                     // Bytes -> Vec<u8> for serde
     ttl_duration_remaining: Option<Duration>,    // converted from Instant

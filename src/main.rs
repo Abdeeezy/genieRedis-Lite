@@ -19,6 +19,8 @@ use persistence::aof::AofWriter;
 
 use std::path::Path;
 
+use crate::persistence::aof;
+
 
 
 #[tokio::main]
@@ -40,15 +42,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         persistence::aof::replay(Path::new("appendonly.aof"), store.clone())?; //propagate error
     }
 
+    // create the writer (mutex'd and atomically referenced)
+    let aof_writer = Arc::new(Mutex::new(AofWriter::new(Path::new("appendonly.aof"))?));
+
+
     // spawn a task that utilizes store's active key-expiry sweeping
     let store_clone: Store = store.clone(); // so we can call it on a OWNED `store`
     tokio::spawn(async move {
         store_clone.expiry_sweep(Duration::from_secs(3)).await; //every 3 seconds, sweep. 
     });
     
-    // create the writer (mutex'd and atomically referenced)
-    let aof_writer = Arc::new(Mutex::new(AofWriter::new(Path::new("appendonly.aof"))?));
+    
+    // spawn a task that snapshots the data-store periodically for long-term persistance. 
+    // and also wipe the short-form persistance for state-validity (since the snapshot captures all state up to that point)  
+    let duration_in_seconds = 300;
+    let store_clone2 = store.clone();
+    let aof_writer_clone = aof_writer.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(duration_in_seconds)).await; // every 300sec/5min of server-up-time 
+            let entries = persistence::snapshot::collect_snapshot(&store_clone2);
+            match tokio::task::spawn_blocking(move || {
+                persistence::snapshot::save(entries, Path::new("dump.rdb"))
+            }).await {
+                Ok(Ok(())) => {
+                    let mut writer = aof_writer_clone.lock().unwrap();
+                    writer.truncate().unwrap_or_else(|e| eprintln!("AOF truncate failed: {}", e));
+                    println!("Snapshot saved")
+                },
+                Ok(Err(e)) => eprintln!("Snapshot save error: {}", e),
+                Err(e) => eprintln!("Snapshot task panicked: {}", e),
+            }
+        }
+    });
 
+
+    
     // run listener and client-handling
     server::run(listener, store, aof_writer).await;
 

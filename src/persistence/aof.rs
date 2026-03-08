@@ -17,6 +17,8 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
+use std::io::SeekFrom;
+use std::io::Seek;
 
 use tokio::time::Duration;
 use tokio::time::Instant;
@@ -50,6 +52,12 @@ impl AofWriter {
         // write to file
         self.file.write_all(bytes)?; //propagate error
 
+        Ok(())
+    }
+
+    pub fn truncate(&mut self) -> Result<(), std::io::Error> {
+        self.file.set_len(0)?; //wipes the contents
+        self.file.seek(SeekFrom::Start(0))?; //resets the write cursor back to the start. 
         Ok(())
     }
 }
