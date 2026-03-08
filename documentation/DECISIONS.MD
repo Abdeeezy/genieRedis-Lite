@@ -95,6 +95,7 @@ Nothing.
 **Why [leave it]:**  
 It's negilible to change and the accuracy drift really doesn't matter. it's a difference of nanometers- and if a key exists
 for even 1 second longer than desired (which will never happen), who cares.. 
+The real clock inaccuracy is bigger: the TTL lost precision the moment we saved the snapshot. If a key had 30 seconds left when we serialized, and the process was down for 10 seconds before restarting, it'll get 30 seconds again on load instead of 20. The snapshot doesn't know how long the process was dead. //TODO:// Real Redis optimizes this by saving a timestamp alongside the snapshot and computing the actual elapsed time on load. 
 
 **Tradeoffs:**  
 integrity/principles

@@ -102,9 +102,6 @@ pub fn load(path: &Path) -> Result<Store, SnapshotError>{
     
     // create the store
     let store: Store = Store::new();
-    let now: Instant = Instant::now();
-
-
     // For each entry, convert TTL back to Instant, insert into a fresh Store
     for entry in entries{
         // the store's set function internally sets the timestamp to be the current-time offset by the remaining duration

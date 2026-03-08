@@ -4,12 +4,17 @@
 //      - AOF for write-ahead logging between snapshots (durability)
 //          - append write commands, replay on startup
 
+
+
+
+// this mod.rs acts as just the glue that tells Rust "here are the submodules inside persistence/"
 use super::protocol;
 use super::storage;
 
-mod snapshot;
+pub mod snapshot;
+//pub mod aof;
 
-
+pub use snapshot::SnapshotError;
 
 
 
