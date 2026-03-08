@@ -14,13 +14,11 @@ Key design considerations
         - cargo add serde --features derive
 */
 
-use super::protocol;
-use super::storage::Entry;
+
 use super::storage::Store;
 
 use std::path::Path;
 
-use tokio::net::tcp::ReuniteError;
 use tokio::time::Duration;
 use tokio::time::Instant;
 
@@ -29,7 +27,7 @@ use serde::{Serialize, Deserialize};
 use bytes::Bytes;
 
 
-///// --- ENUMS --- 
+///// --- STRUCTS / ENUMS --- 
 // Serializable representation of one entry
 #[derive(Serialize, Deserialize)] // Serde-derives for the bincode
 struct SnapshotEntry {

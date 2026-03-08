@@ -12,6 +12,11 @@ use tokio::net::{TcpListener};
 use tokio::time::Duration;
 
 
+use std::sync::Arc;
+use std::sync::Mutex;
+use persistence::aof::AofWriter;
+
+
 use std::path::Path;
 
 
@@ -36,8 +41,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         store_clone.expiry_sweep(Duration::from_secs(3)).await; //every 3 seconds, sweep. 
     });
     
+    // create the writer (mutex'd and atomically referenced)
+    let aofWriter = Arc::new(Mutex::new(AofWriter::new(Path::new("appendonly.aof"))?));
+
     // run listener and client-handling
-    server::run(listener, store).await;
+    server::run(listener, store, aofWriter).await;
 
 
     // BTW: test using `redis-cli` 
