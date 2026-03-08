@@ -45,10 +45,6 @@ pub enum SnapshotError {
 }
 
 
-const DEFAULT_PATH: &str = "dump.rdb";
-
-
-
 
 //// --- OPERATIONS ---
 /// Collect current state (fast, touches the store, blocking but the speed allows for it to be negilible to the run-time of the server)

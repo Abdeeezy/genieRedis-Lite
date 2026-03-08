@@ -141,8 +141,8 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 - `AofWriter::new(path: &Path) -> Result<Self, io::Error>` — opens/creates AOF file in append mode via OpenOptions
 - `pub fn append(&mut self, bytes: &[u8]) -> Result<(), io::Error>` — writes raw RESP bytes to the file
 - `pub fn replay(path: &Path, store: &Store) -> Result<(), io::Error>` — 🔲 TODO: reads AOF file, parses RESP frames, replays write commands against store
-
-**Status:** ⏳ in progress — writing works, replay not yet implemented
+- `pub fn truncate(&mut self) -> Result<(), io::Error>` — wipes file via `set_len(0)` + `seek(0)` on existing handle. Called after successful snapshot.
+**Status:** ⏳ implemented
 
 ---
 
@@ -161,15 +161,17 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 ```
 
 ## Startup Flow
-
 ```
 1. Check if dump.rdb exists
    - Yes → snapshot::load(path) → populated Store (crash on corruption)
    - No  → Store::new()
-2. TODO: Check if appendonly.aof exists → replay(path, store) on top of snapshot
+2. Check if appendonly.aof exists → replay(path, store) on top of snapshot
 3. Create AofWriter (opens/creates appendonly.aof in append mode)
-4. Spawn background expiry sweep task
-5. TODO: Spawn periodic snapshot save task
+4. Spawn background expiry sweep task (every 3s)
+5. Spawn periodic snapshot save task
+   - collect_snapshot on async thread (fast)
+   - save() via spawn_blocking (disk IO off async pool)
+   - On success: truncate AOF
 6. Start TCP server (run listener + client handling)
 ```
 
@@ -190,5 +192,3 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 - Error propagation strategy
 - Benchmarking setup
 - Graceful shutdown
-- AOF truncation after snapshot
-- Periodic snapshot scheduling

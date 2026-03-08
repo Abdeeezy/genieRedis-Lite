@@ -279,7 +279,7 @@ Updated at the end of each working session.
   - Captures raw RESP bytes from buffer before `buf.advance(pos)`
   - Uses `matches!(&cmd, Command::Set { .. } | Command::Del { .. })` to check write commands
   - Logs only after successful execution of write commands
-- Wired `AofWriter` through `main.rs` → `run()` → `handle_client()` with Arc+Mutex cloning pattern
+- Wired `AofWriter` through `main.rs` -> `run()` -> `handle_client()` with Arc+Mutex cloning pattern
 - Tested end-to-end: SET/GET working, `appendonly.aof` file created with raw RESP bytes confirmed
 
 #### Decisions Made
@@ -310,6 +310,40 @@ Updated at the end of each working session.
 - Implement AOF truncation after successful snapshot (so AOF only contains commands since last snapshot)
 - Implement periodic snapshot saving (background task on an interval, similar to expiry sweep)
 - Update ARCHITECTURE.md with persistence module details
+
+---
+
+### Session 007 - [2026-03-08]
+**Phase:** Phase 6 - Persistence (continued - Hybrid AOF/RDB)
+**Commit(s):** 
+- `session 06 - integrated snapshot/aof in the main.rs`
+- `session 06 - implemented a hybrid wiring of AOF and Snapshotting persistence in main.rs; added a truncate() function to aofWriter-struct;`
+
+#### What We Did
+- Implemented `aof::replay(path, store)` - reads entire AOF file into memory with `std::fs::read()`, walks it with the same cursor-based parse loop as `handle_client` minus the socket/response logic. Reuses `server::execute_command` (made `pub`) to dispatch replayed commands against the store.
+- Wired hybrid startup sequence in `main.rs`: load snapshot if `dump.rdb` exists -> replay AOF if `appendonly.aof` exists -> open fresh AofWriter. AOF replay runs independently of snapshot - works with or without a prior snapshot.
+- Implemented periodic snapshot saving as a background Tokio task in `main.rs` - `collect_snapshot` runs on the async executor (fast, just reads DashMap), `save()` runs inside `spawn_blocking` to keep disk IO off the async threads.
+- Implemented `AofWriter::truncate()` - `set_len(0)` + `seek(Start(0))` on the existing file handle. Called after a successful snapshot save to clear the AOF, since the snapshot now captures all state up to that point.
+
+#### Decisions Made
+- **AOF replay tolerates partial frames** - `Incomplete` at end of file is expected (crash mid-write), just stop and move on. Hard parse errors also stop replay with a warning rather than crashing, since the snapshot has the bulk of state.
+- **AOF truncation after snapshot** - small race window exists: writes between `collect_snapshot` and `truncate` are lost. I'm disregarding it. It's an acceptable tradeoff - Redis has the same behavior, and the window is tiny in practice.
+- **Periodic snapshot interval** - set to 300s(5m) for now. Not Redis-style conditional ("save after N writes in M seconds"), just a fixed interval. Simple and sufficient enough.
+
+#### Mistakes / Learnings
+- Tried `file.read_buf(&mut buf)` for AOF replay - that's Tokio's `AsyncReadExt`, not available on `std::fs::File`. `std::fs::read()` is the right tool for synchronous full-file reads.
+
+
+#### Open Questions
+- None
+
+#### Next Session
+- Phase 7: Benchmarking & hardening
+- Stress test concurrent connections
+- Benchmark GET/SET throughput
+- Explore graceful shutdown
+
+
 
 <!-- Copy-Paste Template  -->
 <!--
