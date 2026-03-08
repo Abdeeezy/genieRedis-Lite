@@ -28,12 +28,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Redis Main.rs-Testing Entry..");
 
+    // the sequence should be: load snapshot if exists -> replay AOF on top -> then open a fresh AOF writer.
     // initilize the store and the ARC-dashmap
-    let store: Store = if Path::new("dump.rdb").exists() { //  if RDB-snapshots file exists, load store with the data
-        persistence::snapshot::load(Path::new("dump.rdb"))? // propagate error, crash ("file was found but something went seriously wrong somewhere..")
+    let store = if Path::new("dump.rdb").exists() {
+        persistence::snapshot::load(Path::new("dump.rdb"))?//propagate error
     } else {
         Store::new()
     };
+
+    if Path::new("appendonly.aof").exists() {
+        persistence::aof::replay(Path::new("appendonly.aof"), store.clone())?; //propagate error
+    }
 
     // spawn a task that utilizes store's active key-expiry sweeping
     let store_clone: Store = store.clone(); // so we can call it on a OWNED `store`
@@ -42,10 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     
     // create the writer (mutex'd and atomically referenced)
-    let aofWriter = Arc::new(Mutex::new(AofWriter::new(Path::new("appendonly.aof"))?));
+    let aof_writer = Arc::new(Mutex::new(AofWriter::new(Path::new("appendonly.aof"))?));
 
     // run listener and client-handling
-    server::run(listener, store, aofWriter).await;
+    server::run(listener, store, aof_writer).await;
 
 
     // BTW: test using `redis-cli` 

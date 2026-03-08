@@ -117,7 +117,7 @@ pub async fn handle_client(
     Ok(())
 }
 
-fn execute_command(cmd: protocol::Command, store: &Store) -> RespValue {
+pub fn execute_command(cmd: protocol::Command, store: &Store) -> RespValue {
     match cmd {
         protocol::Command::Ping => RespValue::SimpleString("PONG".into()),
         protocol::Command::Exists { key } => {

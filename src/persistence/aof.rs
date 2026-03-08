@@ -14,15 +14,20 @@ Key questions:
 
 
 use std::fs::OpenOptions;
+use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 
 use tokio::time::Duration;
 use tokio::time::Instant;
 
-use bytes::Bytes;
+use bytes::{Buf, Bytes, BytesMut}; // BytesMut can be thought of as containing a buf: Arc<Vec<u8>>
 
 use std::fs::File;
+
+use super::storage::Store;
+use super::protocol;
+use super::server;
 
 pub struct AofWriter {
     pub file: File
@@ -49,4 +54,41 @@ impl AofWriter {
     }
 }
 
+
+pub fn replay(path: &Path, store: Store)-> Result<(), std::io::Error>{
+    //basically server::handle_client's parse loop, minus the socket.
+
+    // Read bytes into a buffer
+    let data = std::fs::read(path)?; // Vec<u8>, whole file in memory
+    let mut pos = 0;
+    // Loop: parse RESP frame → convert to Command → execute against store → advance cursor
+    // Stop when you hit Incomplete or run out of data
+    loop {
+            match protocol::parse_value(&data, &mut pos) {
+                Err(protocol::ProtocolError::Incomplete) => break,
+                Err(e) => { 
+                    println!("Error in AOF-replay: {}", e);
+                    break;
+                 }
+                Ok(value) => {
+                    // parse_command, dispatch, encode, write...
+                    match protocol::parse_command(value) {
+                        Ok(cmd) => {
+                            // if command-parsing successful...
+
+                            //execute the command on the KV-Store
+                            let _ = server::execute_command(cmd, &store);
+                        }
+                        Err(error) => {
+                            println!("Error in AOF-replay: {}", error);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    
+}
 

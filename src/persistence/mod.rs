@@ -10,6 +10,7 @@
 // this mod.rs acts as just the glue that tells Rust "here are the submodules inside persistence/"
 use super::protocol;
 use super::storage;
+use super::server;
 
 pub mod snapshot;
 pub mod aof;
