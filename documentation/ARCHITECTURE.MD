@@ -191,4 +191,4 @@ redis-lite is a single-process, async TCP server. Clients connect over TCP, send
 - Config / CLI args
 - Error propagation strategy
 - Benchmarking setup
-- Graceful shutdown
+

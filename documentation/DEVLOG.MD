@@ -343,7 +343,34 @@ Updated at the end of each working session.
 - Benchmark GET/SET throughput
 - Explore graceful shutdown
 
+---
+### Session 007-02 - [2026-03-08]
+**Phase:** Phase 7 - Hardening (Graceful Shutdown)
+**Commit(s):** 
+- `session 06 - implemented cancellation-token registering for cleaner-shutdowns; editted server's run() for cancellation-token; implemented shutdown-cleanup, final snapshot and flush AOF.`
 
+#### What We Did
+- Implemented graceful shutdown using `tokio_util::sync::CancellationToken`
+- Added `CancellationToken` parameter to `server::run()` - accept loop now uses `tokio::select!` to race `listener.accept()` against `shutdown.cancelled()`, breaking the loop when cancellation is triggered
+- Wired shutdown in `main.rs`: `tokio::select!` races `server::run()` against `tokio::signal::ctrl_c()`. When Ctrl+C fires, the token is cancelled, `run()` breaks its accept loop, and control falls through to cleanup
+- Implemented shutdown cleanup: final snapshot save (via `spawn_blocking`) + AOF truncation, executed inline after the `select!` - no spawned task, no loop, just a one-shot save before process exit
+- Existing in-flight client tasks finish naturally after the accept loop stops - no forced termination
+
+#### Decisions Made
+- **`CancellationToken` over broadcast channel** - cleaner API for "one signal, many listeners" pattern. Clone to share, `.cancel()` to trigger, `.cancelled()` to await. No channel management or recv errors to handle.
+- **Don't wait for in-flight clients** - stop accepting new connections and let existing handlers finish whenever. Simpler than tracking spawned tasks with a `JoinSet` or counter. Acceptable since client operations are short-lived.
+- **Inline shutdown cleanup, not spawned** - final snapshot is a one-shot operation at process end. No reason to spawn a task
+
+#### Mistakes / Learnings
+- `tokio::select!` branch syntax is `result = future => { ... }` - can't drop a `match` statement directly inside the macro. Each branch must bind a future's output, then handle it in the block.
+- `listener.accept()` inside `select!` goes without `.await` - the macro handles awaiting both futures internally.
+- Shutdown cleanup should consume `store` and `aof_writer` directly - no clones needed since it's the end of `main`
+
+#### Open Questions
+- None
+
+#### Next Session
+- Error handling cleanup - audit `unwrap()`s and `expect()`s across the codebase, replace with proper error handling where a panic would crash the server
 
 <!-- Copy-Paste Template  -->
 <!--
