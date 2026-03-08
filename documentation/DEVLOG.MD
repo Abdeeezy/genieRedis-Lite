@@ -247,6 +247,70 @@ Updated at the end of each working session.
 #### Next Session
 - Phase 6: Persistence - AOF or snapshot
 
+
+### Session 006 - [2026-03-08]
+**Phase:** Phase 6 - Persistence (Snapshot + AOF)
+**Commit(s):** 
+- `Session 06 - bug fix in server's handle_client which stalled the socket/TcpStream/buffer-reading.`
+- `session 06 - persistence module partly scaffolding, specifcally EBD snapshotting.`
+- `session 06 - installed serde/bincode, had to repair the project by adding something to settings.json; implemented new store-method to return a vector of key-value pairs found in the store's data.`
+- `Session 06 - implemented snapshot.rs's collect_snapshot(), save(), load(); and documentation.`
+- `session 06 - wired RDB snapshotting logic to main.rs`
+- `session 06 - Bug fix in server's run() client-handling`
+- `session 06 - implemented AOF-logging; rewired main.rs and server's run() and handle_client() to take the writer.`
+
+
+#### What We Did
+- Investigated and fixed the one-shot `redis-cli` stalling bug from Session 005 - root cause was `continue` instead of `break` in the inner parse loop's `Incomplete` arm, causing an infinite spin instead of returning to the outer read loop
+- Fixed `run()`'s match on `handle_client` result - `_ =>` was matching both Ok and Err, printing "Error" on every normal disconnect. Changed to proper `Ok(_)` / `Err(e)` arms
+- Designed and implemented `persistence/snapshot.rs` - RDB-style snapshotting
+  - `SnapshotEntry` struct with serde derives for bincode serialization
+  - `SnapshotError` enum using `thiserror` with `#[from]` for io::Error and bincode::ErrorKind
+  - `collect_snapshot(store)` - iterates the DashMap, skips expired keys, converts `Instant` to remaining `Duration`, returns `Vec<SnapshotEntry>`
+  - `save(entries, path)` - serializes with bincode, writes atomically (temp file + rename)
+  - `load(path)` - reads file, deserializes, converts TTL durations back to `Instant`, populates and returns a Store
+- Added `snapshot_entries()` method on Store to expose DashMap contents without making the data field public
+- Wired snapshot loading into `main.rs` startup - loads from `dump.rdb` if it exists, crashes on corruption (strict mode, matches Redis behavior)
+- Designed and implemented `persistence/aof.rs` - Append-Only File logging
+  - `AofWriter` struct wrapping a `std::fs::File` opened in append+create mode via `OpenOptions`
+  - `append(&mut self, bytes: &[u8])` - writes raw RESP bytes to the AOF file
+  - Wrapped in `Arc<Mutex<AofWriter>>` for sharing across client tasks
+- Integrated AOF logging into `handle_client`:
+  - Captures raw RESP bytes from buffer before `buf.advance(pos)`
+  - Uses `matches!(&cmd, Command::Set { .. } | Command::Del { .. })` to check write commands
+  - Logs only after successful execution of write commands
+- Wired `AofWriter` through `main.rs` → `run()` → `handle_client()` with Arc+Mutex cloning pattern
+- Tested end-to-end: SET/GET working, `appendonly.aof` file created with raw RESP bytes confirmed
+
+#### Decisions Made
+- **Bincode v1.3.3 over v2/v3** - v3.0.0 is a tombstone release (maintainer faced harassment, ceased development)[LOL]. v2.0.1 works but v1.3.3 is battle-tested, widely used, and has the simplest serde-based API (`serialize`/`deserialize`).
+- **Background snapshot saving** - collect entries from DashMap (fast, briefly locks shards), then write to disk in a spawned task. Avoids blocking the server during disk I/O. Consistency is maintained because the collected Vec is a point-in-time copy detached from the live store.
+- **`std::sync::Mutex` for AofWriter, not `tokio::Mutex`** - more like a mistake than a discision but.. anyways: lock is only held for a quick synchronous file write, no `.await` while holding it. `std::sync::Mutex` is cheaper and correct for this use case.
+- **AOF format is raw RESP bytes** - reuses existing parser for replay, zero new serialization code needed.
+- **AOF fsync strategy: OS-managed** - no explicit fsync on every write. Simplest option, acceptable durability since snapshots cover the bulk of state. Matches Redis's `appendfsync no` option.
+- **Log at caller level (`handle_client`), not inside `execute_command`** - keeps execute_command pure. handle_client already knows the command type and has access to the raw bytes.
+- **Strict snapshot load failure** - if `dump.rdb` exists but is corrupted, crash on startup rather than silently starting fresh. Matches Redis behavior; silent data loss is worse than a noisy failure.
+
+#### Mistakes / Learnings
+- `continue` vs `break` in nested loops is a classic trap - `continue` re-runs the current loop, not the outer one. The stalling bug was exactly this.
+- `_ =>` in match catches everything including Ok - always be explicit with `Ok(_)` and `Err(e)`
+- rust-analyzer ABI mismatch: proc-macro DLLs must match the exact rustc version. `cargo clean` + rebuild fixes it after a toolchain update. Also fixed by installing `rust-analyzer` as a rustup component instead of using the standalone VS Code bundled version (`rust-analyzer.server.path: "rust-analyzer"`)
+- Orphan modules in Rust get no IDE support - `persistence/snapshot.rs` had no intellisense until `mod persistence;` was added to main.rs and `mod snapshot;` to `persistence/mod.rs`. Two separate problems (ABI + orphan module) compounded into one confusing symptom.
+- `Instant` can't be serialized - it's relative to boot time. Must convert to `Duration` (remaining TTL) for serialization, convert back on load.
+- Snapshot TTL is approximate - if process is down for 10 seconds, keys get their full TTL back on reload instead of (TTL - downtime). Acceptable for now.
+- `OpenOptions::new().create(true).append(true).open(path)` is the pattern for append-mode file creation
+- `matches!(&cmd, Command::Set { .. })` checks enum variant without consuming the value - useful when you need to inspect then move
+
+#### Open Questions
+- None
+
+#### Next Session
+- Implement AOF replay on startup - `replay(path, store)` function that reads the AOF file, parses RESP frames in a loop (same cursor pattern as `handle_client`), and executes each command against the store
+- Wire hybrid startup in `main.rs`: load snapshot first, then replay AOF on top
+- Implement AOF truncation after successful snapshot (so AOF only contains commands since last snapshot)
+- Implement periodic snapshot saving (background task on an interval, similar to expiry sweep)
+- Update ARCHITECTURE.md with persistence module details
+
 <!-- Copy-Paste Template  -->
 <!--
 ### Session 00X - [DATE]
