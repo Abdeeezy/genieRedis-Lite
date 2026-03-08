@@ -52,7 +52,7 @@ Surface-level consideration and decision made to streamline progress faster. If 
 | `Tokio` | Industry standard, massive ecosystem, best docs |
 
 
-**Why Tokio:**  
+**Why [Tokio]:**  
 Seems like a strong reputation standard for async Rust. Best documentation, most Stack Overflow answers, integrates with everything. Great for a networking-heavy project.
 
 **Tradeoffs:**  
@@ -73,11 +73,31 @@ Seems like a strong reputation standard for async Rust. Best documentation, most
 | forcing seconds only              | lazy       |
 | allowing seconds or milliseconds  | flexibility|
  
-**Why [Chosen Option]:**  
+**Why [allowing seconds or milliseconds]:**  
 Chose establishing time-choice to allow for flexibility and precision. Also to match with Redis-standards; it'll work with stuff like Redis-cli more seamlessly.
 
 **Tradeoffs:**  
 Nothing.
+
+### D00X — store set TTL disregard
+**Date:** [2026-03-08]  
+**Phase:**  5 
+**Session:** Session 006
+
+**Decision:** chose to disregard the RDB-snapshot loading semantics in the context of how the Store's Get() function is programmed.  
+
+**Options Considered:**
+|                        Option                                    |                           Notes                              |
+|------------------------------------------------------------------|--------------------------------------------------------------|
+| leave it                                                         | the accuracy drift between Instant::now() calls is negilible |
+| reconfigure the store's get() and all functions that utilize it. |  it's annoying lol.                                          |
+
+**Why [leave it]:**  
+It's negilible to change and the accuracy drift really doesn't matter. it's a difference of nanometers- and if a key exists
+for even 1 second longer than desired (which will never happen), who cares.. 
+
+**Tradeoffs:**  
+integrity/principles
 
 <!-- COPY-PASTE TEMPLATE -->
 <!--
