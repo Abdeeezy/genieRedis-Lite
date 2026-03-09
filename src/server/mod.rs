@@ -92,7 +92,16 @@ pub async fn handle_client(
 
                             if is_write {
                                 // log the respvalue (in it's wire byte form) to the aof log
-                                aof_writer.lock().unwrap().append(&raw)?; //propagate error if occurs
+                                match aof_writer.lock() {
+                                    Ok(mut writer) => {
+                                        if let Err(e) = writer.append(&raw) { //log IO error, non-fatal handling, keep serving 
+                                            eprintln!("AOF write failed: {}", e);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("AOF lock poisoned, skipping write: {}", e); //log mutex-poisoning error, non-fatal, keep serving 
+                                    }
+                                }
                             }
 
                             // send result back

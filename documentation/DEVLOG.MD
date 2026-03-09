@@ -313,7 +313,7 @@ Updated at the end of each working session.
 
 ---
 
-### Session 007 - [2026-03-08]
+### Session 006-01 - [2026-03-08]
 **Phase:** Phase 6 - Persistence (continued - Hybrid AOF/RDB)
 **Commit(s):** 
 - `session 06 - integrated snapshot/aof in the main.rs`
@@ -344,7 +344,7 @@ Updated at the end of each working session.
 - Explore graceful shutdown
 
 ---
-### Session 007-02 - [2026-03-08]
+### Session 006-02 - [2026-03-08]
 **Phase:** Phase 7 - Hardening (Graceful Shutdown)
 **Commit(s):** 
 - `session 06 - implemented cancellation-token registering for cleaner-shutdowns; editted server's run() for cancellation-token; implemented shutdown-cleanup, final snapshot and flush AOF.`
@@ -371,6 +371,48 @@ Updated at the end of each working session.
 
 #### Next Session
 - Error handling cleanup - audit `unwrap()`s and `expect()`s across the codebase, replace with proper error handling where a panic would crash the server
+
+
+
+---
+
+### Session 007 - [2026-03-08]
+**Phase:** Phase 7 - Hardening (Error Handling Cleanup)
+**Commit(s):** 
+- `session 07 -  error-handling cleanup, handled unwraps() with proper code. `
+
+#### What We Did
+- Audited the entire codebase for `unwrap()` and `expect()` calls that could panic and crash the server at runtime
+- Found 3 instances - all `aof_writer.lock().unwrap()` on the `Arc<Mutex<AofWriter>>`:
+  1. `handle_client()` - AOF logging after write commands
+  2. `main.rs` periodic snapshot task - AOF truncation after successful snapshot
+  3. `main.rs` shutdown cleanup - AOF truncation after final snapshot
+- Replaced all three with `match aof_writer.lock()` that logs the error and continues - AOF failures are now non-fatal
+
+
+#### Decisions Made
+- AOF failures (both lock poison and IO errors) are non-fatal - log a warning, keep serving. Availability over durability guarantee. Snapshots cover the bulk of state anyway.
+
+#### Mistakes / Learnings
+- Poisoned mutexes still give access to inner data via `unwrap_or_else(|e| e.into_inner())` - useful when you'd rather recover than crash
+- Not every `unwrap()` is bad - startup-time panics on corrupted state are intentional and correct (fail loud > silent data loss)
+
+#### Open Questions
+- None
+
+#### Next Session
+- Benchmarking - stress test concurrent connections, benchmark GET/SET throughput
+
+
+
+
+
+
+
+
+
+
+
 
 <!-- Copy-Paste Template  -->
 <!--
