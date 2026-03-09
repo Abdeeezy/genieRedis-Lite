@@ -1,4 +1,4 @@
-# redis-lite
+# genieRedis-lite
 
 A lightweight, high-performance key-value store built from scratch in Rust. A simplified Redis clone with RESP protocol support, concurrent in-memory storage, key expiration, hybrid persistence, and graceful shutdown.
 
