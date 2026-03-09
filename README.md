@@ -2,6 +2,8 @@
 
 A lightweight, high-performance key-value store built from scratch in Rust. A simplified Redis clone with RESP protocol support, concurrent in-memory storage, key expiration, hybrid persistence, and graceful shutdown.
 
+This project was my introduction and practice for the Rust programming-language; There will be comments that I wrote alongside some code that might seem needlessly explanatory in the eyes of someone who's more adept at Rust. 
+
 > **Status:** ✅ Complete - all build phases finished
 
 ---
