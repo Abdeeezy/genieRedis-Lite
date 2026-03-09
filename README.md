@@ -22,6 +22,22 @@ redis-lite is a from-scratch implementation of a Redis-like server. It speaks a 
 | `EXISTS key` | Check if a key exists |
 
 ---
+## Request Flow 
+```mermaid
+flowchart TD
+    Client["Client (redis-cli / any RESP client)"]
+    Server["server/ — Tokio TCP listener, one task per connection, graceful shutdown"]
+    Protocol["protocol/ — RESP parser (bytes → Command enum), encoder (RespValue → bytes)"]
+    Storage["storage/ — DashMap KV store, GET/SET/DEL/EXISTS, lazy + active TTL expiry"]
+    Persistence["persistence/ — Hybrid RDB snapshots + AOF logging, replay on startup"]
+
+    Client -->|"TCP :6379"| Server
+    Server --> Protocol
+    Protocol --> Storage
+    Storage --> Persistence
+```
+
+---
 
 ## Performance
 
