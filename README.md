@@ -166,22 +166,6 @@ redis-benchmark -p 6379 -t set,get -n 100000 -c 200 -d 1024 -P 16
 
 ---
 
-## Possible Extensions
-
-Things that could be added but are outside the original scope:
-
-- **More commands** - MGET/MSET, INCR/DECR, APPEND, KEYS, FLUSHALL, TTL, PERSIST, RENAME
-- **AUTH** - password-based client authentication
-- **Pub/Sub** - SUBSCRIBE/PUBLISH with per-channel broadcast using Tokio channels
-- **Data structures** - Lists (LPUSH/RPUSH/LPOP), Sets (SADD/SMEMBERS), Hashes (HSET/HGET)
-- **AOF write batching** - collect writes and flush periodically to reduce mutex contention under pipelining (addresses the known tail latency bottleneck)
-- **Dedicated AOF writer task** - move AOF to a background task fed by an mpsc channel, eliminating mutex contention entirely
-- **Config file / CLI args** - port, snapshot interval, AOF fsync policy, max memory
-- **Memory limits** - max memory with eviction policies (LRU, LFU, random)
-
-
----
-
 ## Project Docs
 
 | File | Purpose |
